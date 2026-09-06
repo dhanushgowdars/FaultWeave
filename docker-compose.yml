@@ -1,5 +1,11 @@
 name: faultweave
 
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 x-service-defaults: &service-defaults
   restart: unless-stopped
   env_file: .env
@@ -7,10 +13,13 @@ x-service-defaults: &service-defaults
     DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
     JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
     SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+    APP_ENV: ${APP_ENV:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
   depends_on:
     postgres:
       condition: service_healthy
   networks: [faultweave]
+  logging: *json-logging
 
 services:
   postgres:
@@ -31,6 +40,7 @@ services:
       timeout: 3s
       retries: 15
     networks: [faultweave]
+    logging: *json-logging
 
   auth-service:
     <<: *service-defaults
@@ -45,6 +55,8 @@ services:
       SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
       DEMO_USERNAME: ${DEMO_USERNAME:-demo}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-faultweave-demo}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "${AUTH_HOST_PORT:-18111}:8000"
     healthcheck:
@@ -97,6 +109,8 @@ services:
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8000}
       TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8000}
       PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://payment-service:8000}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
         condition: service_healthy

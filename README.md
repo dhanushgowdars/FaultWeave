@@ -2,7 +2,7 @@
 
 FaultWeave is a controlled digital-transaction microservice environment for studying log anomaly detection and probable incident-origin localization. It simulates transactions only; it does not move real money or use real customer data.
 
-## Phase 1 status
+## Current status
 
 - API Gateway, Authentication, Transaction, and Payment services
 - PostgreSQL with service-owned `auth`, `transactions`, and `payments` schemas
@@ -10,6 +10,9 @@ FaultWeave is a controlled digital-transaction microservice environment for stud
 - Correlation IDs propagated through the normal request path
 - Docker Compose health checks and deterministic demo seed user
 - Pytest unit tests and an end-to-end smoke script
+- Versioned structured JSON logs with cross-service correlation and latency
+- Recursive credential redaction and a stable operational event taxonomy
+- Rotating Docker logs and validated JSONL export for later dataset generation
 
 ## Normal request path
 
@@ -94,3 +97,14 @@ docs/            phase acceptance criteria and architecture notes
 
 See `docs/phase-1.md` for verification criteria and next-phase boundaries.
 The complete gated build order is recorded in `docs/roadmap.md`.
+
+## Export structured logs
+
+After running at least one smoke transaction:
+
+```bash
+python scripts/verify_phase2.py
+python scripts/collect_logs.py --since 10m
+```
+
+The generated JSONL file is written under `data/raw/` and intentionally ignored by Git. See `docs/phase-2.md` for the complete schema and acceptance criteria.

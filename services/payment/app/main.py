@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
 from faultweave_common.db import database_ready, make_engine, make_session_factory
+from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import RequestIdMiddleware
 from faultweave_common.schemas import HealthResponse, PaymentCreate, PaymentRecord, PaymentStatus
 from faultweave_common.security import authenticated_subject, require_service_token
@@ -14,6 +15,7 @@ from .models import Base, Payment
 
 engine = make_engine()
 session_factory = make_session_factory(engine)
+logger = configure_logging("payment")
 
 
 async def get_session():
@@ -30,7 +32,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="FaultWeave Payment Service", version="0.1.0", lifespan=lifespan)
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestIdMiddleware, service="payment")
 
 
 @app.get("/health/live", response_model=HealthResponse)
@@ -66,4 +68,12 @@ async def create_payment(
     session.add(record)
     await session.commit()
     await session.refresh(record)
+    logger.info(
+        "payment_completed",
+        "Simulated payment completed",
+        outcome=LogOutcome.SUCCESS,
+        transaction_id=record.transaction_id,
+        payment_id=record.id,
+        attributes={"payment_status": record.status},
+    )
     return record

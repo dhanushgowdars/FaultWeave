@@ -9,3 +9,5 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+data/raw/*.jsonl
+!data/raw/.gitkeep

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException
 from faultweave_common.db import database_ready, make_engine, make_session_factory
+from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import RequestIdMiddleware
 from faultweave_common.schemas import (
     HealthResponse,
@@ -20,6 +21,7 @@ from .models import Base, Transaction
 
 engine = make_engine()
 session_factory = make_session_factory(engine)
+logger = configure_logging("transaction")
 
 
 async def get_session():
@@ -36,7 +38,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="FaultWeave Transaction Service", version="0.1.0", lifespan=lifespan)
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestIdMiddleware, service="transaction")
 
 
 @app.get("/health/live", response_model=HealthResponse)
@@ -72,6 +74,14 @@ async def create_transaction(
     session.add(record)
     await session.commit()
     await session.refresh(record)
+    logger.info(
+        "transaction_created",
+        "Transaction record created",
+        outcome=LogOutcome.SUCCESS,
+        user_id=user_id,
+        transaction_id=record.id,
+        attributes={"transaction_status": record.status},
+    )
     return record
 
 
@@ -88,11 +98,34 @@ async def complete_transaction(
 ) -> Transaction:
     record = await session.get(Transaction, str(transaction_id))
     if record is None:
+        logger.warning(
+            "transaction_not_found",
+            "Transaction completion target was not found",
+            outcome=LogOutcome.FAILURE,
+            transaction_id=str(transaction_id),
+            error_type="TransactionNotFound",
+        )
         raise HTTPException(status_code=404, detail="Transaction not found")
     if record.status != TransactionStatus.PENDING.value:
+        logger.warning(
+            "transaction_state_conflict",
+            "Transaction was not in a completable state",
+            outcome=LogOutcome.FAILURE,
+            transaction_id=record.id,
+            error_type="TransactionStateConflict",
+            attributes={"transaction_status": record.status},
+        )
         raise HTTPException(status_code=409, detail="Transaction is not pending")
     record.status = TransactionStatus.COMPLETED.value
     record.payment_id = str(payload.payment_id)
     await session.commit()
     await session.refresh(record)
+    logger.info(
+        "transaction_completed",
+        "Transaction completed after simulated payment",
+        outcome=LogOutcome.SUCCESS,
+        transaction_id=record.id,
+        payment_id=record.payment_id,
+        attributes={"transaction_status": record.status},
+    )
     return record

@@ -18,7 +18,7 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["shared", "services/gateway"]
+pythonpath = [".", "shared", "services/gateway"]
 addopts = "-q"
 
 [tool.ruff]

@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from faultweave_common.db import database_ready, make_engine, make_session_factory
+from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import RequestIdMiddleware
 from faultweave_common.schemas import HealthResponse, LoginRequest, LoginResponse
 from faultweave_common.security import create_access_token, hash_password, verify_password
@@ -16,6 +17,7 @@ from .models import Base, User
 
 engine = make_engine()
 session_factory = make_session_factory(engine)
+logger = configure_logging("authentication")
 
 
 async def get_session():
@@ -43,7 +45,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="FaultWeave Authentication Service", version="0.1.0", lifespan=lifespan)
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestIdMiddleware, service="authentication")
 
 
 @app.get("/health/live", response_model=HealthResponse)
@@ -71,5 +73,17 @@ async def login(
         or not verify_password(payload.password, user.password_hash)
     )
     if credentials_invalid:
+        logger.warning(
+            "authentication_failed",
+            "Authentication attempt was rejected",
+            outcome=LogOutcome.FAILURE,
+            error_type="InvalidCredentials",
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    logger.info(
+        "authentication_succeeded",
+        "User authentication succeeded",
+        outcome=LogOutcome.SUCCESS,
+        user_id=user.id,
+    )
     return LoginResponse(access_token=create_access_token(user.id), user_id=UUID(user.id))
