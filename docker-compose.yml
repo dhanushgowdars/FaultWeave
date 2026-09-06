@@ -1,0 +1,122 @@
+name: faultweave
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
+    JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
+    SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks: [faultweave]
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-faultweave}
+      POSTGRES_USER: ${POSTGRES_USER:-faultweave}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faultweave_dev}
+    ports:
+      - "${POSTGRES_HOST_PORT:-15434}:5432"
+    volumes:
+      - faultweave_postgres:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    networks: [faultweave]
+
+  auth-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_NAME: auth
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
+      JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+      DEMO_USERNAME: ${DEMO_USERNAME:-demo}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-faultweave-demo}
+    ports:
+      - "${AUTH_HOST_PORT:-18111}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  transaction-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_NAME: transaction
+    ports:
+      - "${TRANSACTION_HOST_PORT:-18112}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  payment-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_NAME: payment
+    ports:
+      - "${PAYMENT_HOST_PORT:-18113}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  gateway:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_NAME: gateway
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
+      JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8000}
+      TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8000}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://payment-service:8000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      transaction-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_HOST_PORT:-18110}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  faultweave_postgres:
+
+networks:
+  faultweave:
+    driver: bridge
