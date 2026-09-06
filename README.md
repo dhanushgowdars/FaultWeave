@@ -13,6 +13,7 @@ FaultWeave is a controlled digital-transaction microservice environment for stud
 - Versioned structured JSON logs with cross-service correlation and latency
 - Recursive credential redaction and a stable operational event taxonomy
 - Rotating Docker logs and validated JSONL export for later dataset generation
+- Seeded normal-traffic profiles with immutable manifests and checksummed run artifacts
 
 ## Normal request path
 
@@ -129,3 +130,21 @@ python scripts/collect_logs.py --since 10m
 
 The generated JSONL file is written under `data/raw/` and intentionally ignored by Git.
 See `docs/phase-2b.md` for the frozen schema and acceptance criteria.
+
+## Phase 3 normal experiments
+
+Preview a deterministic workload without sending traffic:
+
+```bash
+python -m experiments.runner --profile low --seed 31001 --duration 5 --dry-run
+```
+
+Run one short integration experiment:
+
+```bash
+python -m experiments.runner --profile low --seed 31001 --duration 5
+```
+
+Phase 3 then calibrates the local high-but-healthy envelope before running the 25 official
+normal experiments. Runtime artifacts are stored under `data/experiments/`, ignored by Git,
+and verified using SHA-256 checksums. See `docs/phase-3.md` for the gated procedure.

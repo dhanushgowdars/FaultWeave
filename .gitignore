@@ -11,3 +11,5 @@ build/
 *.egg-info/
 data/raw/*.jsonl
 !data/raw/.gitkeep
+data/experiments/**
+!data/experiments/.gitkeep

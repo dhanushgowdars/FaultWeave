@@ -49,6 +49,18 @@ services:
       dockerfile: services/Dockerfile
       args:
         SERVICE_NAME: auth
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--no-access-log",
+        "--workers",
+        "${AUTH_WORKERS:-4}",
+      ]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
       JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}

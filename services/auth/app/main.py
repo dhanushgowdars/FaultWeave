@@ -11,6 +11,7 @@ from faultweave_common.middleware import RequestIdMiddleware
 from faultweave_common.schemas import HealthResponse, LoginRequest, LoginResponse
 from faultweave_common.security import create_access_token, hash_password, verify_password
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Base, User
@@ -29,10 +30,13 @@ async def seed_demo_user() -> None:
     username = os.getenv("DEMO_USERNAME", "demo")
     password = os.getenv("DEMO_PASSWORD", "faultweave-demo")
     async with session_factory() as session:
-        existing = await session.scalar(select(User).where(User.username == username))
-        if existing is None:
-            session.add(User(username=username, password_hash=hash_password(password)))
-            await session.commit()
+        statement = (
+            insert(User)
+            .values(username=username, password_hash=hash_password(password))
+            .on_conflict_do_nothing(index_elements=[User.username])
+        )
+        await session.execute(statement)
+        await session.commit()
 
 
 @asynccontextmanager
