@@ -148,3 +148,9 @@ python -m experiments.runner --profile low --seed 31001 --duration 5
 Phase 3 then calibrates the local high-but-healthy envelope before running the 25 official
 normal experiments. Runtime artifacts are stored under `data/experiments/`, ignored by Git,
 and verified using SHA-256 checksums. See `docs/phase-3.md` for the gated procedure.
+
+## Phase 4 controlled faults
+
+Phase 4 begins with an exclusive, bounded fault-activation lease and frozen registries
+for seven core known faults, two extended known faults and sealed unknown identifiers.
+See `docs/phase-4.md` for the staged injector acceptance process.

@@ -13,3 +13,5 @@ data/raw/*.jsonl
 !data/raw/.gitkeep
 data/experiments/**
 !data/experiments/.gitkeep
+data/fault-control/**
+!data/fault-control/.gitkeep
