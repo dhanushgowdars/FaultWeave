@@ -18,6 +18,11 @@ class PaymentStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class LedgerEntryType(StrEnum):
+    PAYMENT_COMPLETED = "PAYMENT_COMPLETED"
+    TRANSACTION_COMPLETED = "TRANSACTION_COMPLETED"
+
+
 class HealthResponse(BaseModel):
     service: str
     status: str
@@ -37,6 +42,7 @@ class LoginResponse(BaseModel):
 
 
 class TransactionRequest(LoginRequest):
+    account_number: str = Field(default="FW-DEMO-001", min_length=3, max_length=40)
     amount_minor: int = Field(gt=0, le=100_000_000)
     currency: str = Field(default="INR", min_length=3, max_length=3)
     recipient: str = Field(min_length=1, max_length=120)
@@ -50,6 +56,7 @@ class TransactionRequest(LoginRequest):
 
 
 class TransactionCreate(BaseModel):
+    account_id: UUID
     amount_minor: int
     currency: str
     recipient: str
@@ -61,22 +68,26 @@ class TransactionRecord(BaseModel):
 
     id: UUID
     user_id: UUID
+    account_id: UUID
     request_id: str
     amount_minor: int
     currency: str
     recipient: str
     status: TransactionStatus
     payment_id: UUID | None = None
+    ledger_entry_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class TransactionComplete(BaseModel):
     payment_id: UUID
+    ledger_entry_id: UUID
 
 
 class PaymentCreate(BaseModel):
     transaction_id: UUID
+    account_id: UUID
     amount_minor: int
     currency: str
     request_id: str
@@ -87,17 +98,81 @@ class PaymentRecord(BaseModel):
 
     id: UUID
     transaction_id: UUID
+    account_id: UUID
     request_id: str
     amount_minor: int
     currency: str
     status: PaymentStatus
     provider_reference: str
+    ledger_entry_id: UUID
     created_at: datetime
+
+
+class AccountRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    account_number: str
+    currency: str
+    balance_minor: int
+    is_active: bool
+    created_at: datetime
+
+
+class AccountLookup(BaseModel):
+    account_number: str = Field(min_length=3, max_length=40)
+
+
+class AccountValidation(BaseModel):
+    account_id: UUID
+    amount_minor: int = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
+
+
+class AccountValidationResult(BaseModel):
+    account_id: UUID
+    valid: bool
+    reason: str | None = None
+
+
+class LedgerEntryCreate(BaseModel):
+    transaction_id: UUID
+    payment_id: UUID | None = None
+    account_id: UUID
+    entry_type: LedgerEntryType
+    amount_minor: int = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
+    request_id: str
+
+
+class LedgerEntryRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    transaction_id: UUID
+    payment_id: UUID | None = None
+    account_id: UUID
+    entry_type: LedgerEntryType
+    amount_minor: int
+    currency: str
+    request_id: str
+    created_at: datetime
+
+
+class TransactionProcess(BaseModel):
+    account_id: UUID
+    amount_minor: int
+    currency: str
+    recipient: str
+    request_id: str
 
 
 class TransactionFlowResponse(BaseModel):
     request_id: str
+    account_id: UUID
     transaction_id: UUID
     payment_id: UUID
+    ledger_entry_id: UUID
     status: TransactionStatus
     message: str

@@ -17,8 +17,11 @@ REQUIRED_FIELDS = {
     "level",
     "event_type",
     "message",
+    "run_id",
     "request_id",
+    "trace_id",
     "outcome",
+    "success",
 }
 
 
@@ -30,7 +33,7 @@ def extract_event(line: str) -> dict[str, Any] | None:
         event = json.loads(payload)
     except json.JSONDecodeError:
         return None
-    if event.get("schema_version") != "1.0" or not REQUIRED_FIELDS.issubset(event):
+    if event.get("schema_version") != "1.1" or not REQUIRED_FIELDS.issubset(event):
         return None
     return event
 

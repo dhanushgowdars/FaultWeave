@@ -26,3 +26,10 @@ async def database_ready(engine: AsyncEngine) -> bool:
         return True
     except Exception:
         return False
+
+
+async def ensure_schema(engine: AsyncEngine, schema: str) -> None:
+    if not schema.replace("_", "").isalnum():
+        raise ValueError("invalid schema name")
+    async with engine.begin() as connection:
+        await connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))

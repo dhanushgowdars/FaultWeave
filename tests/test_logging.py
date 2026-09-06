@@ -33,10 +33,11 @@ def test_structured_formatter_emits_required_schema_and_redacts_secrets() -> Non
 
     event = json.loads(formatter.format(record))
 
-    assert event["schema_version"] == "1.0"
+    assert event["schema_version"] == "1.1"
     assert event["service"] == "authentication"
     assert event["level"] == "WARNING"
     assert event["request_id"] == "request-001"
+    assert event["success"] is False
     assert "plain-text" not in json.dumps(event)
     assert "abc.def.ghi" not in json.dumps(event)
     assert event["attributes"]["password"] == "[REDACTED]"

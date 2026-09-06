@@ -72,6 +72,24 @@ services:
       dockerfile: services/Dockerfile
       args:
         SERVICE_NAME: transaction
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
+      JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+      ACCOUNT_SERVICE_URL: ${ACCOUNT_SERVICE_URL:-http://account-service:8000}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://payment-service:8000}
+      LEDGER_SERVICE_URL: ${LEDGER_SERVICE_URL:-http://ledger-service:8000}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      account-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      ledger-service:
+        condition: service_healthy
     ports:
       - "${TRANSACTION_HOST_PORT:-18112}:8000"
     healthcheck:
@@ -87,8 +105,57 @@ services:
       dockerfile: services/Dockerfile
       args:
         SERVICE_NAME: payment
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
+      JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+      LEDGER_SERVICE_URL: ${LEDGER_SERVICE_URL:-http://ledger-service:8000}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ledger-service:
+        condition: service_healthy
     ports:
       - "${PAYMENT_HOST_PORT:-18113}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  account-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_NAME: account
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
+      JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
+      DEMO_ACCOUNT_NUMBER: ${DEMO_ACCOUNT_NUMBER:-FW-DEMO-001}
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${ACCOUNT_HOST_PORT:-18114}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  ledger-service:
+    <<: *service-defaults
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_NAME: ledger
+    ports:
+      - "${LEDGER_HOST_PORT:-18115}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
       interval: 5s
@@ -107,8 +174,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}
       SERVICE_TOKEN: ${SERVICE_TOKEN:-faultweave-local-service-token}
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8000}
+      ACCOUNT_SERVICE_URL: ${ACCOUNT_SERVICE_URL:-http://account-service:8000}
       TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8000}
-      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://payment-service:8000}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
@@ -116,9 +183,9 @@ services:
         condition: service_healthy
       auth-service:
         condition: service_healthy
-      transaction-service:
+      account-service:
         condition: service_healthy
-      payment-service:
+      transaction-service:
         condition: service_healthy
     ports:
       - "${GATEWAY_HOST_PORT:-18110}:8000"

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, Request
 from faultweave_common.logging import LogOutcome, configure_logging
-from faultweave_common.middleware import RequestIdMiddleware, request_id
+from faultweave_common.middleware import (
+    CorrelationMiddleware,
+    request_correlation_headers,
+    request_id,
+)
 from faultweave_common.schemas import HealthResponse, TransactionFlowResponse, TransactionRequest
 
 from .orchestrator import TransactionOrchestrator
@@ -10,10 +14,10 @@ from .orchestrator import TransactionOrchestrator
 app = FastAPI(
     title="FaultWeave API Gateway",
     description="Controlled transaction simulation for the FaultWeave research environment.",
-    version="0.1.0",
+    version="0.2.0",
 )
 logger = configure_logging("gateway")
-app.add_middleware(RequestIdMiddleware, service="gateway")
+app.add_middleware(CorrelationMiddleware, service="gateway")
 
 
 def get_orchestrator() -> TransactionOrchestrator:
@@ -43,7 +47,11 @@ async def normal_transaction(
         outcome=LogOutcome.UNKNOWN,
     )
     try:
-        result = await orchestrator.run(payload, current_request_id)
+        result = await orchestrator.run(
+            payload,
+            current_request_id,
+            request_correlation_headers(request),
+        )
     except Exception as exc:
         logger.error(
             "transaction_flow_failed",

@@ -12,8 +12,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-LOG_SCHEMA_VERSION = "1.0"
+LOG_SCHEMA_VERSION = "1.1"
+run_id_context: ContextVar[str | None] = ContextVar("run_id", default=None)
 request_id_context: ContextVar[str | None] = ContextVar("request_id", default=None)
+trace_id_context: ContextVar[str | None] = ContextVar("trace_id", default=None)
 
 _SENSITIVE_KEY_PARTS = (
     "authorization",
@@ -40,19 +42,22 @@ class LogOutcome(str, Enum):
 class StructuredLogEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = LOG_SCHEMA_VERSION
+    schema_version: Literal["1.1"] = LOG_SCHEMA_VERSION
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     service: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     environment: str = Field(pattern=r"^[a-z][a-z0-9_-]*$")
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     event_type: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     message: str = Field(min_length=1, max_length=500)
+    run_id: str | None = Field(default=None, max_length=100)
     request_id: str | None = Field(default=None, max_length=100)
+    trace_id: str | None = Field(default=None, max_length=100)
     method: str | None = Field(default=None, max_length=10)
     path: str | None = Field(default=None, max_length=300)
     status_code: int | None = Field(default=None, ge=100, le=599)
     latency_ms: float | None = Field(default=None, ge=0)
     outcome: LogOutcome = LogOutcome.UNKNOWN
+    success: bool | None = None
     user_id: str | None = Field(default=None, max_length=100)
     transaction_id: str | None = Field(default=None, max_length=100)
     payment_id: str | None = Field(default=None, max_length=100)
@@ -68,12 +73,35 @@ class StructuredLogEvent(BaseModel):
         return value
 
 
-def set_request_id(value: str) -> Token[str | None]:
-    return request_id_context.set(value)
+def set_correlation_context(
+    run_id: str,
+    request_id: str,
+    trace_id: str,
+) -> tuple[Token[str | None], Token[str | None], Token[str | None]]:
+    return (
+        run_id_context.set(run_id),
+        request_id_context.set(request_id),
+        trace_id_context.set(trace_id),
+    )
 
 
-def reset_request_id(token: Token[str | None]) -> None:
-    request_id_context.reset(token)
+def reset_correlation_context(
+    tokens: tuple[Token[str | None], Token[str | None], Token[str | None]],
+) -> None:
+    run_id_context.reset(tokens[0])
+    request_id_context.reset(tokens[1])
+    trace_id_context.reset(tokens[2])
+
+
+def correlation_headers() -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if run_id := run_id_context.get():
+        headers["X-Run-ID"] = run_id
+    if request_id := request_id_context.get():
+        headers["X-Request-ID"] = request_id
+    if trace_id := trace_id_context.get():
+        headers["X-Trace-ID"] = trace_id
+    return headers
 
 
 def _redact_text(value: str) -> str:
@@ -109,7 +137,15 @@ class StructuredJsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         supplied = dict(getattr(record, "faultweave_event", {}))
+        supplied.setdefault("run_id", run_id_context.get())
         supplied.setdefault("request_id", request_id_context.get())
+        supplied.setdefault("trace_id", trace_id_context.get())
+        outcome = supplied.get("outcome", LogOutcome.UNKNOWN)
+        if "success" not in supplied:
+            if outcome == LogOutcome.SUCCESS or outcome == LogOutcome.SUCCESS.value:
+                supplied["success"] = True
+            elif outcome == LogOutcome.FAILURE or outcome == LogOutcome.FAILURE.value:
+                supplied["success"] = False
         try:
             event = StructuredLogEvent(
                 service=self.service,
@@ -125,8 +161,11 @@ class StructuredJsonFormatter(logging.Formatter):
                 level="ERROR",
                 event_type="logging_schema_error",
                 message="A log event failed schema validation",
+                run_id=run_id_context.get(),
                 request_id=request_id_context.get(),
+                trace_id=trace_id_context.get(),
                 outcome=LogOutcome.FAILURE,
+                success=False,
                 error_type=type(exc).__name__,
             )
         return json.dumps(event.model_dump(mode="json"), separators=(",", ":"), sort_keys=True)

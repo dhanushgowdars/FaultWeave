@@ -10,6 +10,8 @@ REQUIRED_PORTS = {
     "Authentication": 18111,
     "Transaction": 18112,
     "Payment": 18113,
+    "Account": 18114,
+    "Ledger": 18115,
 }
 
 

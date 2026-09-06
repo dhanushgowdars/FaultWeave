@@ -1,17 +1,27 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
-from uuid import UUID
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException
+from faultweave_common.config import SERVICE_TOKEN
 from faultweave_common.db import database_ready, make_engine, make_session_factory
+from faultweave_common.http import DownstreamClient
 from faultweave_common.logging import LogOutcome, configure_logging
-from faultweave_common.middleware import RequestIdMiddleware
+from faultweave_common.middleware import CorrelationMiddleware
 from faultweave_common.schemas import (
+    AccountValidation,
+    AccountValidationResult,
     HealthResponse,
-    TransactionComplete,
-    TransactionCreate,
-    TransactionRecord,
+    LedgerEntryCreate,
+    LedgerEntryRecord,
+    LedgerEntryType,
+    PaymentCreate,
+    PaymentRecord,
+    TransactionFlowResponse,
+    TransactionProcess,
     TransactionStatus,
 )
 from faultweave_common.security import authenticated_subject, require_service_token
@@ -22,6 +32,10 @@ from .models import Base, Transaction
 engine = make_engine()
 session_factory = make_session_factory(engine)
 logger = configure_logging("transaction")
+downstream = DownstreamClient(logger)
+ACCOUNT_SERVICE_URL = os.getenv("ACCOUNT_SERVICE_URL", "http://account-service:8000")
+PAYMENT_SERVICE_URL = os.getenv("PAYMENT_SERVICE_URL", "http://payment-service:8000")
+LEDGER_SERVICE_URL = os.getenv("LEDGER_SERVICE_URL", "http://ledger-service:8000")
 
 
 async def get_session():
@@ -37,8 +51,8 @@ async def lifespan(_: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="FaultWeave Transaction Service", version="0.1.0", lifespan=lifespan)
-app.add_middleware(RequestIdMiddleware, service="transaction")
+app = FastAPI(title="FaultWeave Transaction Service", version="0.2.0", lifespan=lifespan)
+app.add_middleware(CorrelationMiddleware, service="transaction")
 
 
 @app.get("/health/live", response_model=HealthResponse)
@@ -54,78 +68,150 @@ async def ready() -> HealthResponse:
 
 
 @app.post(
-    "/internal/v1/transactions",
-    response_model=TransactionRecord,
+    "/internal/v1/transactions/process",
+    response_model=TransactionFlowResponse,
     dependencies=[Depends(require_service_token)],
 )
-async def create_transaction(
-    payload: TransactionCreate,
+async def process_transaction(
+    payload: TransactionProcess,
+    authorization: str = Header(...),
     user_id: str = Depends(authenticated_subject),
     session: AsyncSession = Depends(get_session),
-) -> Transaction:
-    record = Transaction(
+) -> TransactionFlowResponse:
+    service_headers = {
+        "Authorization": authorization,
+        "X-Service-Token": SERVICE_TOKEN,
+    }
+    transaction = Transaction(
+        id=str(uuid4()),
         user_id=user_id,
+        account_id=str(payload.account_id),
         request_id=payload.request_id,
         amount_minor=payload.amount_minor,
         currency=payload.currency,
         recipient=payload.recipient,
         status=TransactionStatus.PENDING.value,
     )
-    session.add(record)
+    session.add(transaction)
     await session.commit()
-    await session.refresh(record)
+    await session.refresh(transaction)
     logger.info(
         "transaction_created",
         "Transaction record created",
         outcome=LogOutcome.SUCCESS,
         user_id=user_id,
-        transaction_id=record.id,
-        attributes={"transaction_status": record.status},
+        transaction_id=transaction.id,
+        attributes={"account_id": transaction.account_id, "transaction_status": transaction.status},
     )
-    return record
 
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            account_response = await downstream.request(
+                client,
+                "POST",
+                f"{ACCOUNT_SERVICE_URL}/internal/v1/accounts/validate",
+                "account",
+                payload=AccountValidation(
+                    account_id=payload.account_id,
+                    amount_minor=payload.amount_minor,
+                    currency=payload.currency,
+                ).model_dump(mode="json"),
+                headers=service_headers,
+            )
+            validation = AccountValidationResult.model_validate(account_response.json())
+            if not validation.valid:
+                raise HTTPException(status_code=409, detail=validation.reason)
 
-@app.patch(
-    "/internal/v1/transactions/{transaction_id}/complete",
-    response_model=TransactionRecord,
-    dependencies=[Depends(require_service_token)],
-)
-async def complete_transaction(
-    transaction_id: UUID,
-    payload: TransactionComplete,
-    _: str = Depends(authenticated_subject),
-    session: AsyncSession = Depends(get_session),
-) -> Transaction:
-    record = await session.get(Transaction, str(transaction_id))
-    if record is None:
+            payment_response = await downstream.request(
+                client,
+                "POST",
+                f"{PAYMENT_SERVICE_URL}/internal/v1/payments",
+                "payment",
+                payload=PaymentCreate(
+                    transaction_id=transaction.id,
+                    account_id=payload.account_id,
+                    amount_minor=payload.amount_minor,
+                    currency=payload.currency,
+                    request_id=payload.request_id,
+                ).model_dump(mode="json"),
+                headers=service_headers,
+            )
+            payment = PaymentRecord.model_validate(payment_response.json())
+
+            ledger_response = await downstream.request(
+                client,
+                "POST",
+                f"{LEDGER_SERVICE_URL}/internal/v1/ledger/entries",
+                "ledger",
+                payload=LedgerEntryCreate(
+                    transaction_id=transaction.id,
+                    payment_id=payment.id,
+                    account_id=payload.account_id,
+                    entry_type=LedgerEntryType.TRANSACTION_COMPLETED,
+                    amount_minor=payload.amount_minor,
+                    currency=payload.currency,
+                    request_id=payload.request_id,
+                ).model_dump(mode="json"),
+                headers=service_headers,
+            )
+            ledger_entry = LedgerEntryRecord.model_validate(ledger_response.json())
+    except HTTPException:
+        transaction.status = TransactionStatus.FAILED.value
+        await session.commit()
         logger.warning(
-            "transaction_not_found",
-            "Transaction completion target was not found",
+            "transaction_failed",
+            "Transaction failed account validation",
             outcome=LogOutcome.FAILURE,
-            transaction_id=str(transaction_id),
-            error_type="TransactionNotFound",
+            transaction_id=transaction.id,
+            error_type="AccountValidationFailure",
         )
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    if record.status != TransactionStatus.PENDING.value:
-        logger.warning(
-            "transaction_state_conflict",
-            "Transaction was not in a completable state",
+        raise
+    except httpx.HTTPStatusError as exc:
+        transaction.status = TransactionStatus.FAILED.value
+        await session.commit()
+        logger.error(
+            "transaction_failed",
+            "Transaction failed because a downstream service rejected the request",
             outcome=LogOutcome.FAILURE,
-            transaction_id=record.id,
-            error_type="TransactionStateConflict",
-            attributes={"transaction_status": record.status},
+            transaction_id=transaction.id,
+            error_type="DownstreamHTTPError",
         )
-        raise HTTPException(status_code=409, detail="Transaction is not pending")
-    record.status = TransactionStatus.COMPLETED.value
-    record.payment_id = str(payload.payment_id)
+        raise HTTPException(status_code=502, detail="Transaction dependency failed") from exc
+    except httpx.RequestError as exc:
+        transaction.status = TransactionStatus.FAILED.value
+        await session.commit()
+        logger.error(
+            "transaction_failed",
+            "Transaction failed because a downstream service was unavailable",
+            outcome=LogOutcome.FAILURE,
+            transaction_id=transaction.id,
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(status_code=503, detail="Transaction dependency unavailable") from exc
+
+    transaction.status = TransactionStatus.COMPLETED.value
+    transaction.payment_id = str(payment.id)
+    transaction.ledger_entry_id = str(ledger_entry.id)
     await session.commit()
-    await session.refresh(record)
+    await session.refresh(transaction)
     logger.info(
         "transaction_completed",
-        "Transaction completed after simulated payment",
+        "Transaction completed with payment and ledger evidence",
         outcome=LogOutcome.SUCCESS,
-        transaction_id=record.id,
-        payment_id=record.payment_id,
-        attributes={"transaction_status": record.status},
+        transaction_id=transaction.id,
+        payment_id=transaction.payment_id,
+        attributes={
+            "account_id": transaction.account_id,
+            "ledger_entry_id": transaction.ledger_entry_id,
+            "transaction_status": transaction.status,
+        },
     )
-    return record
+    return TransactionFlowResponse(
+        request_id=payload.request_id,
+        account_id=payload.account_id,
+        transaction_id=transaction.id,
+        payment_id=payment.id,
+        ledger_entry_id=ledger_entry.id,
+        status=TransactionStatus.COMPLETED,
+        message="Simulated transaction completed successfully",
+    )

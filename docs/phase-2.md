@@ -1,5 +1,9 @@
 # Phase 2 - Structured logging and correlation
 
+> Historical checkpoint: Phase 2 introduced schema `1.0`. Phase 2B supersedes it with
+> the frozen `1.1` contract and adds Account, Ledger, `run_id`, `trace_id`, and `success`.
+> New collection accepts only `1.1`; see `docs/phase-2b.md`.
+
 ## Purpose
 
 Phase 2 creates the stable observability contract that later traffic generation, fault injection, feature engineering, and ML stages will consume. It records operational behaviour without logging request bodies, passwords, tokens, cookies, or database credentials.

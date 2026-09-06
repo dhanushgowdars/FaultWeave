@@ -17,12 +17,22 @@ except ModuleNotFoundError:  # Direct execution uses the scripts directory on sy
     from collect_logs import extract_event
 
 PROJECT_DIRECTORY = Path(__file__).resolve().parents[1]
-EXPECTED_SERVICES = {"gateway", "authentication", "transaction", "payment"}
+EXPECTED_SERVICES = {
+    "gateway",
+    "authentication",
+    "account",
+    "transaction",
+    "payment",
+    "ledger",
+}
 EXPECTED_EVENT_TYPES = {
     "transaction_flow_started",
     "authentication_succeeded",
+    "account_lookup_completed",
+    "account_validation_completed",
     "transaction_created",
     "payment_completed",
+    "ledger_entry_created",
     "transaction_completed",
     "transaction_flow_completed",
 }

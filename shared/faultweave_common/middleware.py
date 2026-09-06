@@ -7,19 +7,31 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from .logging import LogOutcome, configure_logging, reset_request_id, set_request_id
+from .logging import (
+    LogOutcome,
+    configure_logging,
+    reset_correlation_context,
+    set_correlation_context,
+)
 
 
-class RequestIdMiddleware(BaseHTTPMiddleware):
+class CorrelationMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, service: str) -> None:
         super().__init__(app)
         self.logger = configure_logging(service)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        current_request_id = request.headers.get("X-Request-ID") or str(uuid4())
-        current_request_id = current_request_id.strip()[:100] or str(uuid4())
+        current_run_id = self._clean(request.headers.get("X-Run-ID"), "manual")
+        current_request_id = self._clean(request.headers.get("X-Request-ID"), str(uuid4()))
+        current_trace_id = self._clean(request.headers.get("X-Trace-ID"), str(uuid4()))
+        request.state.run_id = current_run_id
         request.state.request_id = current_request_id
-        context_token = set_request_id(current_request_id)
+        request.state.trace_id = current_trace_id
+        context_tokens = set_correlation_context(
+            current_run_id,
+            current_request_id,
+            current_trace_id,
+        )
         started_at = perf_counter()
         try:
             response = await call_next(request)
@@ -46,7 +58,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
                 latency_ms=latency_ms,
                 outcome=outcome,
             )
+            response.headers["X-Run-ID"] = current_run_id
             response.headers["X-Request-ID"] = current_request_id
+            response.headers["X-Trace-ID"] = current_trace_id
             return response
         except Exception as exc:
             latency_ms = round((perf_counter() - started_at) * 1000, 3)
@@ -62,8 +76,32 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             )
             raise
         finally:
-            reset_request_id(context_token)
+            reset_correlation_context(context_tokens)
+
+    @staticmethod
+    def _clean(value: str | None, fallback: str) -> str:
+        return (value or fallback).strip()[:100] or fallback
+
+
+# Retained as an import-compatible alias for Phase 1/2 modules.
+RequestIdMiddleware = CorrelationMiddleware
 
 
 def request_id(request: Request) -> str:
     return request.state.request_id
+
+
+def run_id(request: Request) -> str:
+    return request.state.run_id
+
+
+def trace_id(request: Request) -> str:
+    return request.state.trace_id
+
+
+def request_correlation_headers(request: Request) -> dict[str, str]:
+    return {
+        "X-Run-ID": run_id(request),
+        "X-Request-ID": request_id(request),
+        "X-Trace-ID": trace_id(request),
+    }

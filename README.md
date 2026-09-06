@@ -4,10 +4,10 @@ FaultWeave is a controlled digital-transaction microservice environment for stud
 
 ## Current status
 
-- API Gateway, Authentication, Transaction, and Payment services
-- PostgreSQL with service-owned `auth`, `transactions`, and `payments` schemas
+- API Gateway, Authentication, Account, Transaction, Payment, and Ledger services
+- PostgreSQL with a service-owned schema for every stateful service
 - Shared Pydantic API contracts and signed demo access tokens
-- Correlation IDs propagated through the normal request path
+- Run, request, and trace IDs propagated through the complete request path
 - Docker Compose health checks and deterministic demo seed user
 - Pytest unit tests and an end-to-end smoke script
 - Versioned structured JSON logs with cross-service correlation and latency
@@ -16,7 +16,9 @@ FaultWeave is a controlled digital-transaction microservice environment for stud
 
 ## Normal request path
 
-`Client -> Gateway -> Authentication -> Transaction -> Payment -> Transaction completion -> PostgreSQL`
+The Gateway calls Authentication, Account, and Transaction. Transaction calls Account,
+Payment, and Ledger. Payment also records its completion through Ledger. Every stateful
+service uses PostgreSQL.
 
 The payment is a simulation. A successful response proves that the normal control flow and persistence foundation work before logging, fault injection, and machine learning are introduced.
 
@@ -56,6 +58,8 @@ FaultWeave uses a separate host-port range to avoid the existing ReclaimRail and
 | Authentication | `18111` | `8000` |
 | Transaction | `18112` | `8000` |
 | Payment | `18113` | `8000` |
+| Account | `18114` | `8000` |
+| Ledger | `18115` | `8000` |
 
 Container ports do not collide with equal ports in other Compose projects because each container has its own network namespace. Only the host ports on the left must be unique. All host mappings are configurable in `.env`.
 
@@ -70,11 +74,14 @@ docker compose down -v
 ```bash
 curl -X POST http://localhost:18110/api/v1/transactions \
   -H "Content-Type: application/json" \
+  -H "X-Run-ID: manual-demo-001" \
   -H "X-Request-ID: demo-request-001" \
-  -d '{"username":"demo","password":"faultweave-demo","amount_minor":12500,"currency":"INR","recipient":"merchant-demo"}'
+  -H "X-Trace-ID: demo-trace-001" \
+  -d '{"username":"demo","password":"faultweave-demo","account_number":"FW-DEMO-001","amount_minor":12500,"currency":"INR","recipient":"merchant-demo"}'
 ```
 
-Expected status: `COMPLETED`. The response contains one correlation/request ID, transaction ID, and payment ID.
+Expected status: `COMPLETED`. The response contains account, transaction, payment, and
+ledger identifiers. This is simulated data only.
 
 ## Run tests locally
 
@@ -87,8 +94,9 @@ pytest
 ## Repository map
 
 ```text
-services/        four independently deployable FastAPI services
+services/        six independently deployable FastAPI services
 shared/          contracts, security, middleware, and database helpers
+config/          frozen service-dependency contract
 infra/postgres/  database schema bootstrap
 scripts/         reproducible smoke verification
 tests/           Phase 1 unit tests
@@ -97,6 +105,18 @@ docs/            phase acceptance criteria and architecture notes
 
 See `docs/phase-1.md` for verification criteria and next-phase boundaries.
 The complete gated build order is recorded in `docs/roadmap.md`.
+
+## Phase 2B architecture-freeze gate
+
+After rebuilding on a clean development database, verify 100 complete normal flows:
+
+```bash
+python scripts/verify_phase2b.py
+```
+
+This gate verifies the six-service timeline, seven directed dependency edges, schema
+version `1.1`, correlation propagation, absence of unexpected failures, and secret
+redaction. Traffic experiments and dataset generation must not begin until it passes.
 
 ## Export structured logs
 
@@ -107,4 +127,5 @@ python scripts/verify_phase2.py
 python scripts/collect_logs.py --since 10m
 ```
 
-The generated JSONL file is written under `data/raw/` and intentionally ignored by Git. See `docs/phase-2.md` for the complete schema and acceptance criteria.
+The generated JSONL file is written under `data/raw/` and intentionally ignored by Git.
+See `docs/phase-2b.md` for the frozen schema and acceptance criteria.

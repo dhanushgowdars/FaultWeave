@@ -11,6 +11,8 @@ from uuid import uuid4
 def main() -> int:
     gateway_url = os.getenv("FAULTWEAVE_GATEWAY_URL", "http://localhost:18110")
     request_id = f"phase-1-smoke-{uuid4().hex[:12]}"
+    run_id = f"manual-smoke-{uuid4().hex[:8]}"
+    trace_id = str(uuid4())
     payload = json.dumps(
         {
             "username": "demo",
@@ -23,7 +25,12 @@ def main() -> int:
     request = urllib.request.Request(
         f"{gateway_url}/api/v1/transactions",
         data=payload,
-        headers={"Content-Type": "application/json", "X-Request-ID": request_id},
+        headers={
+            "Content-Type": "application/json",
+            "X-Run-ID": run_id,
+            "X-Request-ID": request_id,
+            "X-Trace-ID": trace_id,
+        },
         method="POST",
     )
     try:
@@ -43,7 +50,9 @@ def main() -> int:
         print(f"FAIL: unexpected response: {result}", file=sys.stderr)
         return 1
     print(json.dumps(result, indent=2))
-    print("PASS: Phase 1 normal transaction flow completed")
+    print("PASS: Frozen normal transaction flow completed")
+    print(f"Run ID: {run_id}")
+    print(f"Trace ID: {trace_id}")
     return 0
 
 

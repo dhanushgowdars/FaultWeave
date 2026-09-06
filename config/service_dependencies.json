@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "edges": [
+    {"source": "gateway", "target": "authentication"},
+    {"source": "gateway", "target": "account"},
+    {"source": "gateway", "target": "transaction"},
+    {"source": "transaction", "target": "account"},
+    {"source": "transaction", "target": "payment"},
+    {"source": "transaction", "target": "ledger"},
+    {"source": "payment", "target": "ledger"}
+  ]
+}
