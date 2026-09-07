@@ -77,9 +77,11 @@ this package from feature-selection, training, calibration, or threshold-selecti
 - Split complete runs into train/validation/test (target 60/20/20); never randomly split
   neighbouring rows or windows.
 
-Phase 5 uses a two-gate workflow. Gate 5A freezes the deterministic 55-run matrix before
+Phase 5 uses a three-gate workflow. Gate 5A freezes the deterministic 55-run matrix before
 traffic is sent. Gate 5B executes that matrix resumably and accepts it only when raw
-events, protected ground truth, manifests, interval boundaries and checksums agree.
+events, protected ground truth, manifests, interval boundaries and checksums agree. Gate
+5C derives a quality profile that confirms class balance, observable-field completeness,
+request/event correlation, timing validity, and sealed-unknown exclusion before Phase 6.
 
 ## Modelling contract
 

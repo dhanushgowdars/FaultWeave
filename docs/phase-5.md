@@ -52,3 +52,15 @@ python scripts/verify_phase5.py --minimum-runs 2
 python -m datasets.smoke_executor
 python scripts/verify_phase5.py --require-complete --minimum-runs 55
 ```
+
+## Gate 5C: dataset-quality profile
+
+Gate 5C derives a reproducible quality report from the accepted artifacts without
+changing raw observations or protected ground truth. It requires the exact 10/45 class
+balance, five runs for each known-fault class, complete request/event correlation for
+all 55 runs, required observable fields, and valid interval timings. Sealed unknowns
+are explicitly absent from this training-eligible smoke dataset.
+
+```text
+python scripts/verify_phase5c.py
+```
