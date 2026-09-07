@@ -154,3 +154,7 @@ and verified using SHA-256 checksums. See `docs/phase-3.md` for the gated proced
 Phase 4 begins with an exclusive, bounded fault-activation lease and frozen registries
 for seven core known faults, two extended known faults and sealed unknown identifiers.
 See `docs/phase-4.md` for the staged injector acceptance process.
+
+Infrastructure probes are run through `python -m experiments.faults.probe`. Each probe
+is bound to its own run ID and must restore a healthy stack and normal transaction before
+it is accepted.

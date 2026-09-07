@@ -30,6 +30,35 @@ bounded duration, cleanup and restored normal flow.
 Checkpoint 4C adds the two extended known injectors. Sealed unknown injectors are built
 later in an isolated evaluation-only path.
 
+## Checkpoint 4B1: infrastructure probes
+
+The first four injectors now use two mechanisms:
+
+- Database latency and downstream timeout are scoped by exact run ID through the
+  read-only fault-control mount. Normal and health-check traffic is unaffected.
+- Database and service unavailability stop the selected Compose service and restore it
+  through a guaranteed cleanup lease.
+
+Every short probe writes protected experiment metadata separately under
+`data/experiments/fault-probes/`, then restores the stack and completes a normal smoke
+transaction. Probe artifacts are evidence only and are excluded from Git.
+
+Example bounded probes:
+
+```text
+python -m experiments.faults.probe --fault DATABASE_HIGH_LATENCY \
+  --target transaction --intensity high --duration 5
+python -m experiments.faults.probe --fault DOWNSTREAM_TIMEOUT \
+  --target "transaction->payment" --intensity medium --duration 5
+python -m experiments.faults.probe --fault SERVICE_UNAVAILABLE \
+  --target payment --intensity medium --duration 5
+python -m experiments.faults.probe --fault DATABASE_UNAVAILABLE \
+  --target postgresql --intensity medium --duration 5
+```
+
+The remaining three core mechanisms—authentication burst, load above the calibrated
+healthy envelope and real pool exhaustion—are implemented in Checkpoint 4B2.
+
 ## Verification
 
 ```text

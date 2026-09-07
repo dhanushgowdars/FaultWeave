@@ -5,14 +5,21 @@ from typing import Any
 
 import httpx
 
+from .fault_injection import apply_downstream_timeout
 from .logging import EventLogger, LogOutcome, correlation_headers
 
 
 class DownstreamClient:
     """HTTP client wrapper that preserves correlation and dependency evidence."""
 
-    def __init__(self, logger: EventLogger, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(
+        self,
+        logger: EventLogger,
+        source_service: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         self.logger = logger
+        self.source_service = source_service
         self.transport = transport
 
     async def request(
@@ -29,6 +36,7 @@ class DownstreamClient:
         outgoing_headers.update(headers or {})
         started_at = perf_counter()
         try:
+            await apply_downstream_timeout(self.source_service, downstream_service, url)
             response = await client.request(
                 method,
                 url,

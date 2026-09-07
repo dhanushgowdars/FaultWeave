@@ -19,6 +19,8 @@ x-service-defaults: &service-defaults
     postgres:
       condition: service_healthy
   networks: [faultweave]
+  volumes:
+    - ./data/fault-control:/faultweave-control:ro
   logging: *json-logging
 
 services:

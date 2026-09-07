@@ -10,6 +10,7 @@ from faultweave_common.db import (
     make_engine,
     make_session_factory,
 )
+from faultweave_common.fault_injection import apply_database_latency
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import CorrelationMiddleware
 from faultweave_common.schemas import (
@@ -32,6 +33,7 @@ DEMO_ACCOUNT_NUMBER = os.getenv("DEMO_ACCOUNT_NUMBER", "FW-DEMO-001")
 
 
 async def get_session():
+    await apply_database_latency("account")
     async with session_factory() as session:
         yield session
 

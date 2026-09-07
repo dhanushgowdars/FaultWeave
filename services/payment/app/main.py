@@ -8,6 +8,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from faultweave_common.config import SERVICE_TOKEN
 from faultweave_common.db import database_ready, make_engine, make_session_factory
+from faultweave_common.fault_injection import apply_database_latency
 from faultweave_common.http import DownstreamClient
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import CorrelationMiddleware
@@ -28,11 +29,12 @@ from .models import Base, Payment
 engine = make_engine()
 session_factory = make_session_factory(engine)
 logger = configure_logging("payment")
-downstream = DownstreamClient(logger)
+downstream = DownstreamClient(logger, "payment")
 LEDGER_SERVICE_URL = os.getenv("LEDGER_SERVICE_URL", "http://ledger-service:8000")
 
 
 async def get_session():
+    await apply_database_latency("payment")
     async with session_factory() as session:
         yield session
 
