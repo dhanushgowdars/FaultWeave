@@ -158,3 +158,7 @@ See `docs/phase-4.md` for the staged injector acceptance process.
 Infrastructure probes are run through `python -m experiments.faults.probe`. Each probe
 is bound to its own run ID and must restore a healthy stack and normal transaction before
 it is accepted.
+
+Traffic bursts, calibrated overload and real PostgreSQL connection pressure use
+`python -m experiments.faults.traffic_probe`. Credentials and request bodies are never
+stored in their evidence artifacts.

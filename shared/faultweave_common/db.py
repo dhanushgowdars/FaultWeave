@@ -12,7 +12,13 @@ from .config import DATABASE_URL
 
 
 def make_engine() -> AsyncEngine:
-    return create_async_engine(DATABASE_URL, pool_pre_ping=True)
+    return create_async_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_timeout=5,
+    )
 
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

@@ -67,3 +67,33 @@ def test_expired_or_different_run_fault_is_ignored(tmp_path, monkeypatch) -> Non
         assert fault_injection.active_fault() is None
     finally:
         reset_correlation_context(tokens)
+
+
+def test_high_pool_pressure_acquires_full_configured_service_pool(monkeypatch) -> None:
+    class Connection:
+        async def close(self) -> None:
+            return None
+
+    class Engine:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def connect(self):
+            self.calls += 1
+            return Connection()
+
+    engine = Engine()
+    expires_at = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    monkeypatch.setattr(
+        fault_injection,
+        "active_fault",
+        lambda: {
+            "fault_id": "CONNECTION_POOL_EXHAUSTION",
+            "target": "transaction",
+            "intensity": "high",
+            "expires_at": expires_at,
+        },
+    )
+    fault_injection._HELD_CONNECTIONS.clear()
+    asyncio.run(fault_injection.apply_connection_pool_exhaustion(engine, "transaction"))
+    assert engine.calls == 15

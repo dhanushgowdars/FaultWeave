@@ -59,6 +59,27 @@ python -m experiments.faults.probe --fault DATABASE_UNAVAILABLE \
 The remaining three core mechanisms—authentication burst, load above the calibrated
 healthy envelope and real pool exhaustion—are implemented in Checkpoint 4B2.
 
+## Checkpoint 4B2: traffic and pool probes
+
+Authentication bursts generate concentrated invalid-login requests far beyond the
+normal-error profile. High load is derived from the local Phase 3 calibration and is
+always strictly greater than the selected healthy boundary. Connection-pool exhaustion
+holds the selected service's real SQLAlchemy pool capacity during probe traffic and
+releases every acquired connection through timed cleanup.
+
+Probe request bodies and database credentials are never written to artifacts. Only
+request outcomes, timing, aggregate pressure counts and protected fault metadata are
+retained.
+
+```text
+python -m experiments.faults.traffic_probe --fault AUTHENTICATION_FAILURE_BURST \
+  --target authentication --intensity medium --duration 5
+python -m experiments.faults.traffic_probe --fault HIGH_LOAD \
+  --target gateway --intensity mild --duration 5
+python -m experiments.faults.traffic_probe --fault CONNECTION_POOL_EXHAUSTION \
+  --target transaction --intensity high --duration 5
+```
+
 ## Verification
 
 ```text

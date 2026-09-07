@@ -6,7 +6,10 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from faultweave_common.db import database_ready, make_engine, make_session_factory
-from faultweave_common.fault_injection import apply_database_latency
+from faultweave_common.fault_injection import (
+    apply_connection_pool_exhaustion,
+    apply_database_latency,
+)
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import RequestIdMiddleware
 from faultweave_common.schemas import HealthResponse, LoginRequest, LoginResponse
@@ -23,6 +26,7 @@ logger = configure_logging("authentication")
 
 
 async def get_session():
+    await apply_connection_pool_exhaustion(engine, "authentication")
     await apply_database_latency("authentication")
     async with session_factory() as session:
         yield session
