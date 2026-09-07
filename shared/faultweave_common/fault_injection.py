@@ -21,6 +21,10 @@ _HELD_CONNECTIONS: dict[str, list[AsyncConnection]] = {}
 _LOCK_HOLDERS: dict[str, AsyncConnection] = {}
 
 
+def _stable_fraction(value: str) -> float:
+    return int(hashlib.sha256(value.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+
+
 def active_fault() -> dict | None:
     try:
         payload = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
@@ -97,8 +101,55 @@ def should_inject_downstream_error(service: str, path: str) -> bool:
         return False
     rate = {"mild": 0.3, "medium": 0.6, "high": 0.9}[str(fault["intensity"])]
     request_id = request_id_context.get() or "missing"
-    bucket = int(hashlib.sha256(request_id.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    bucket = _stable_fraction(request_id)
     return bucket < rate
+
+
+async def apply_sealed_unknown_downstream_disruption(
+    source: str, target: str, url: str
+) -> None:
+    """Apply an evaluation-only intermittent connection failure.
+
+    The fault identifier is kept in protected control metadata. Observable logs contain
+    only the resulting connection error, which prevents direct label leakage.
+    """
+    fault = active_fault()
+    if not fault or fault.get("experiment_scope") != "sealed_unknown_evaluation":
+        return
+    if fault.get("fault_id") != "INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE":
+        return
+    if fault.get("target") != f"{source}->{target}":
+        return
+    rate = {"mild": 0.25, "medium": 0.45, "high": 0.65}[str(fault["intensity"])]
+    request_id = request_id_context.get() or "missing"
+    if _stable_fraction(request_id) < rate:
+        request = httpx.Request("POST", url)
+        raise httpx.ConnectError("intermittent downstream connection failure", request=request)
+
+
+async def apply_sealed_unknown_latency_jitter(service: str, path: str) -> None:
+    """Apply deterministic, multi-modal latency jitter for sealed evaluation runs."""
+    fault = active_fault()
+    if not fault or fault.get("experiment_scope") != "sealed_unknown_evaluation":
+        return
+    if fault.get("fault_id") != "LATENCY_JITTER_PARTIAL_DEGRADATION":
+        return
+    if fault.get("target") != service or path.startswith("/health/"):
+        return
+    request_id = request_id_context.get() or "missing"
+    bucket = _stable_fraction(request_id)
+    # A mixture of unaffected, moderately delayed and heavily delayed requests creates
+    # a distribution unlike the fixed known DATABASE_HIGH_LATENCY mechanism.
+    bands = {
+        "mild": (0.55, 0.80, 0.12, 0.55),
+        "medium": (0.35, 0.72, 0.25, 0.95),
+        "high": (0.20, 0.60, 0.45, 1.50),
+    }
+    unaffected, moderate, moderate_delay, heavy_delay = bands[str(fault["intensity"])]
+    if bucket < unaffected:
+        return
+    delay = moderate_delay if bucket < moderate else heavy_delay
+    await asyncio.sleep(delay)
 
 
 async def _release_database_lock(

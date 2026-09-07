@@ -44,6 +44,8 @@ class FaultStateStore:
             payload = json.loads(self.active_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
+        if payload.get("experiment_scope") == "sealed_unknown_evaluation":
+            raise RuntimeError("a sealed-unknown evaluation owns the global fault lease")
         activation = FaultActivation.model_validate(payload)
         if activation.expires_at <= utc_now():
             self.release(activation.activation_id)

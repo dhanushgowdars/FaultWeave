@@ -153,6 +153,11 @@ and verified using SHA-256 checksums. See `docs/phase-3.md` for the gated proced
 
 Phase 4 begins with an exclusive, bounded fault-activation lease and frozen registries
 for seven core known faults, two extended known faults and sealed unknown identifiers.
+
+The sealed unknown evaluation harness is intentionally separated under
+`experiments/sealed_unknowns`. Its artifacts are evaluation-only and are forbidden from
+Isolation Forest fitting, XGBoost fitting, feature selection, calibration and rejection
+threshold selection.
 See `docs/phase-4.md` for the staged injector acceptance process.
 
 Infrastructure probes are run through `python -m experiments.faults.probe`. Each probe

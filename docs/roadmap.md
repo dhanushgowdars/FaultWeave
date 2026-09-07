@@ -12,7 +12,7 @@ dataset integrity, model separation, unknown-fault isolation, and evaluation can
 | 2B | Architecture and observability freeze | Add Account and Ledger; schema `1.1`; 100 clean correlated flows; restart clean |
 | 3 | Experiment and normal-traffic harness | Seeded run manifests; calibrated low, medium, and high-but-healthy traffic |
 | 4 | Controlled known-fault injection | Every injector time-bounded, reversible, labelled, and smoke-verified |
-| 4C | Sealed unknown registry | Unknown families isolated before feature or threshold work |
+| 4C | Sealed unknown evaluation harness | Unknown families isolated before feature or threshold work |
 | 5 | Smoke dataset | Small runs reveal instrumentation, separability, recovery, and leakage problems |
 | 6 | Final dataset | Raw events, manifests, ground truth, and run-level splits are separate and immutable |
 | 7 | Feature engineering | Deterministic window features; 10/30/60-second comparison; no label leakage |
@@ -59,6 +59,11 @@ Sealed unseen evaluation families:
 The unseen runs are forbidden from XGBoost fitting, feature selection, Isolation Forest
 threshold tuning, classifier calibration, and novelty-threshold selection. Ground-truth
 labels are used only after inference for evaluation.
+
+Phase 4C implements these scenarios only under `experiments/sealed_unknowns`. Their
+artifacts carry `training_eligible=false` and `threshold_tuning_eligible=false`. Future
+dataset builders must route them to an evaluation-only partition and must never import
+this package from feature-selection, training, calibration, or threshold-selection code.
 
 ## Dataset contract
 

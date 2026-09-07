@@ -27,8 +27,8 @@ Checkpoint 4B implements each core injector and recovery adapter. Each injector 
 accepted independently with a short experiment proving activation, observable impact,
 bounded duration, cleanup and restored normal flow.
 
-Checkpoint 4C adds the two extended known injectors. Sealed unknown injectors are built
-later in an isolated evaluation-only path.
+Checkpoint 4B3 adds the two extended known injectors. Checkpoint 4C builds sealed unknown
+scenarios in an isolated evaluation-only path.
 
 ## Checkpoint 4B1: infrastructure probes
 
@@ -93,6 +93,33 @@ python -m experiments.faults.probe --fault DATABASE_LOCK_CONTENTION \
   --target transaction --intensity high --duration 5
 python -m experiments.faults.probe --fault DOWNSTREAM_ERROR_BURST \
   --target payment --intensity medium --duration 5
+```
+
+## Checkpoint 4C: sealed unknown evaluation harness
+
+The two unseen scenario families are implemented under `experiments/sealed_unknowns`,
+outside the known-fault registry and known-fault probe commands. They use the same global
+exclusive lease and automatic recovery gate, so known and unseen activations cannot
+overlap. Their protected manifests are written only to
+`data/experiments/sealed-unknown-evaluation/` and explicitly declare that they are
+ineligible for training and threshold tuning.
+
+`INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE` produces deterministic intermittent
+connection failures on one dependency edge. `LATENCY_JITTER_PARTIAL_DEGRADATION` creates
+a multi-modal mixture of unaffected, moderately delayed and heavily delayed requests;
+this is distinct from the fixed-delay known database-latency class. Health endpoints are
+excluded and normal traffic is restored after every bounded probe.
+
+These commands are evaluation proof only. Do not run them while generating healthy or
+known-fault training datasets.
+
+```text
+python -m experiments.sealed_unknowns.probe \
+  --scenario INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE \
+  --target "transaction->payment" --intensity medium --duration 8
+python -m experiments.sealed_unknowns.probe \
+  --scenario LATENCY_JITTER_PARTIAL_DEGRADATION \
+  --target transaction --intensity high --duration 8
 ```
 
 ## Verification

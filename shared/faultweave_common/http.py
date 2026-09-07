@@ -5,7 +5,10 @@ from typing import Any
 
 import httpx
 
-from .fault_injection import apply_downstream_timeout
+from .fault_injection import (
+    apply_downstream_timeout,
+    apply_sealed_unknown_downstream_disruption,
+)
 from .logging import EventLogger, LogOutcome, correlation_headers
 
 
@@ -37,6 +40,9 @@ class DownstreamClient:
         started_at = perf_counter()
         try:
             await apply_downstream_timeout(self.source_service, downstream_service, url)
+            await apply_sealed_unknown_downstream_disruption(
+                self.source_service, downstream_service, url
+            )
             response = await client.request(
                 method,
                 url,

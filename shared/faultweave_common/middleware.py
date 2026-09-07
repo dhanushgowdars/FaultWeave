@@ -7,7 +7,10 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import JSONResponse, Response
 
-from .fault_injection import should_inject_downstream_error
+from .fault_injection import (
+    apply_sealed_unknown_latency_jitter,
+    should_inject_downstream_error,
+)
 from .logging import (
     LogOutcome,
     configure_logging,
@@ -36,6 +39,7 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
         )
         started_at = perf_counter()
         try:
+            await apply_sealed_unknown_latency_jitter(self.service, request.url.path)
             if should_inject_downstream_error(self.service, request.url.path):
                 response = JSONResponse({"detail": "Internal service error"}, status_code=500)
             else:
