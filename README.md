@@ -162,3 +162,7 @@ it is accepted.
 Traffic bursts, calibrated overload and real PostgreSQL connection pressure use
 `python -m experiments.faults.traffic_probe`. Credentials and request bodies are never
 stored in their evidence artifacts.
+
+The extended known-fault set adds genuine PostgreSQL lock contention and a live-service
+downstream error burst. These remain separate classes from generic database latency and
+service unavailability.

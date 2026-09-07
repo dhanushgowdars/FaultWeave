@@ -12,6 +12,7 @@ from faultweave_common.db import (
 from faultweave_common.fault_injection import (
     apply_connection_pool_exhaustion,
     apply_database_latency,
+    apply_database_lock_contention,
 )
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import CorrelationMiddleware
@@ -30,6 +31,7 @@ async def get_session():
     await apply_connection_pool_exhaustion(engine, "ledger")
     await apply_database_latency("ledger")
     async with session_factory() as session:
+        await apply_database_lock_contention(engine, session, "ledger")
         yield session
 
 

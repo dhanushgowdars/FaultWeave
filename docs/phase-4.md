@@ -80,6 +80,21 @@ python -m experiments.faults.traffic_probe --fault CONNECTION_POOL_EXHAUSTION \
   --target transaction --intensity high --duration 5
 ```
 
+## Checkpoint 4B3: extended known faults
+
+Database lock contention uses a real PostgreSQL advisory lock held by a separate
+connection. Requests from the exact experiment run wait for the same transaction-scoped
+lock, producing lock-wait latency before timed release. Downstream error burst keeps the
+selected service alive but deterministically returns controlled 500 responses for a
+configured fraction of experiment requests. Health endpoints are never faulted.
+
+```text
+python -m experiments.faults.probe --fault DATABASE_LOCK_CONTENTION \
+  --target transaction --intensity high --duration 5
+python -m experiments.faults.probe --fault DOWNSTREAM_ERROR_BURST \
+  --target payment --intensity medium --duration 5
+```
+
 ## Verification
 
 ```text

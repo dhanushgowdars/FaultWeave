@@ -5,8 +5,9 @@ from uuid import uuid4
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
+from .fault_injection import should_inject_downstream_error
 from .logging import (
     LogOutcome,
     configure_logging,
@@ -18,6 +19,7 @@ from .logging import (
 class CorrelationMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, service: str) -> None:
         super().__init__(app)
+        self.service = service
         self.logger = configure_logging(service)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -34,7 +36,10 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
         )
         started_at = perf_counter()
         try:
-            response = await call_next(request)
+            if should_inject_downstream_error(self.service, request.url.path):
+                response = JSONResponse({"detail": "Internal service error"}, status_code=500)
+            else:
+                response = await call_next(request)
             latency_ms = round((perf_counter() - started_at) * 1000, 3)
             level = "info"
             outcome = LogOutcome.SUCCESS

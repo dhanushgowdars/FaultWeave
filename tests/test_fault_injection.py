@@ -97,3 +97,29 @@ def test_high_pool_pressure_acquires_full_configured_service_pool(monkeypatch) -
     fault_injection._HELD_CONNECTIONS.clear()
     asyncio.run(fault_injection.apply_connection_pool_exhaustion(engine, "transaction"))
     assert engine.calls == 15
+
+
+def test_downstream_error_burst_is_deterministic_and_excludes_health(monkeypatch) -> None:
+    monkeypatch.setattr(
+        fault_injection,
+        "active_fault",
+        lambda: {
+            "fault_id": "DOWNSTREAM_ERROR_BURST",
+            "target": "payment",
+            "intensity": "medium",
+        },
+    )
+    outcomes = []
+    for index in range(30):
+        tokens = set_correlation_context("run", f"request-{index}", "trace")
+        try:
+            outcomes.append(
+                fault_injection.should_inject_downstream_error("payment", "/internal")
+            )
+            assert not fault_injection.should_inject_downstream_error(
+                "payment", "/health/ready"
+            )
+        finally:
+            reset_correlation_context(tokens)
+    assert any(outcomes)
+    assert not all(outcomes)

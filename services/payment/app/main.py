@@ -11,6 +11,7 @@ from faultweave_common.db import database_ready, make_engine, make_session_facto
 from faultweave_common.fault_injection import (
     apply_connection_pool_exhaustion,
     apply_database_latency,
+    apply_database_lock_contention,
 )
 from faultweave_common.http import DownstreamClient
 from faultweave_common.logging import LogOutcome, configure_logging
@@ -40,6 +41,7 @@ async def get_session():
     await apply_connection_pool_exhaustion(engine, "payment")
     await apply_database_latency("payment")
     async with session_factory() as session:
+        await apply_database_lock_contention(engine, session, "payment")
         yield session
 
 
