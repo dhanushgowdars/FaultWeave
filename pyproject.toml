@@ -20,6 +20,9 @@ dependencies = [
 testpaths = ["tests"]
 pythonpath = [".", "shared", "services/gateway"]
 addopts = "-q"
+filterwarnings = [
+  "ignore:The anyio[.]abc[.]BlockingPortal alias is deprecated.*:DeprecationWarning:starlette[.]testclient",
+]
 
 [tool.ruff]
 line-length = 100

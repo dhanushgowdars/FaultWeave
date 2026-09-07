@@ -77,6 +77,10 @@ this package from feature-selection, training, calibration, or threshold-selecti
 - Split complete runs into train/validation/test (target 60/20/20); never randomly split
   neighbouring rows or windows.
 
+Phase 5 uses a two-gate workflow. Gate 5A freezes the deterministic 55-run matrix before
+traffic is sent. Gate 5B executes that matrix resumably and accepts it only when raw
+events, protected ground truth, manifests, interval boundaries and checksums agree.
+
 ## Modelling contract
 
 - Initial feature windows are 30 seconds with a 5-second step; later compare 10, 30,

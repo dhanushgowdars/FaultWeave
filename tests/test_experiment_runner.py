@@ -1,4 +1,14 @@
-from experiments.runner import build_plan, percentile, validate_correlated_run
+import asyncio
+
+import httpx
+
+from experiments.runner import (
+    PlannedRequest,
+    build_plan,
+    execute_request,
+    percentile,
+    validate_correlated_run,
+)
 from experiments.traffic_profiles import get_profile
 
 
@@ -72,3 +82,43 @@ def test_expected_user_error_does_not_require_full_service_path() -> None:
         }
     ]
     assert validate_correlated_run([request], events) == []
+
+
+def test_attempt_namespace_prevents_request_id_reuse_but_preserves_run_id() -> None:
+    observed_headers: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_headers.append(request.headers)
+        return httpx.Response(
+            200,
+            json={"status": "COMPLETED"},
+            request=request,
+        )
+
+    item = PlannedRequest(
+        sequence=1,
+        offset_seconds=0,
+        scenario="valid",
+        amount_minor=1000,
+    )
+
+    async def execute_attempt(namespace: str) -> dict[str, object]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await execute_request(
+                client,
+                asyncio.Semaphore(1),
+                "http://gateway",
+                "smoke-normal-low-01",
+                51001,
+                item,
+                namespace,
+            )
+
+    first = asyncio.run(execute_attempt("smoke-normal-low-01-a11111111"))
+    second = asyncio.run(execute_attempt("smoke-normal-low-01-a22222222"))
+
+    assert observed_headers[0]["X-Run-ID"] == "smoke-normal-low-01"
+    assert observed_headers[1]["X-Run-ID"] == "smoke-normal-low-01"
+    assert first["request_id"] != second["request_id"]
+    assert first["trace_id"] != second["trace_id"]
+    assert str(first["request_id"]).startswith("smoke-normal-low-01-a11111111-")

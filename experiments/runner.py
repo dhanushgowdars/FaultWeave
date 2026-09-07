@@ -117,9 +117,11 @@ async def execute_request(
     run_id: str,
     seed: int,
     item: PlannedRequest,
+    request_namespace: str | None = None,
 ) -> dict[str, Any]:
-    request_id = f"{run_id}-request-{item.sequence:05d}"
-    trace_id = str(uuid5(NAMESPACE_URL, f"faultweave:{run_id}:{seed}:{item.sequence}"))
+    namespace = request_namespace or run_id
+    request_id = f"{namespace}-request-{item.sequence:05d}"
+    trace_id = str(uuid5(NAMESPACE_URL, f"faultweave:{namespace}:{seed}:{item.sequence}"))
     started_at = datetime.now(UTC)
     started_clock = time.perf_counter()
     status_code: int | None = None
@@ -173,6 +175,7 @@ async def execute_plan(
     run_id: str,
     seed: int,
     max_concurrency: int,
+    request_namespace: str | None = None,
 ) -> list[dict[str, Any]]:
     semaphore = asyncio.Semaphore(max_concurrency)
     limits = httpx.Limits(
@@ -188,7 +191,15 @@ async def execute_plan(
                 await asyncio.sleep(delay)
             tasks.append(
                 asyncio.create_task(
-                    execute_request(client, semaphore, gateway_url, run_id, seed, item)
+                    execute_request(
+                        client,
+                        semaphore,
+                        gateway_url,
+                        run_id,
+                        seed,
+                        item,
+                        request_namespace,
+                    )
                 )
             )
         results = await asyncio.gather(*tasks)

@@ -16,3 +16,5 @@ data/experiments/**
 data/fault-control/**
 !data/fault-control/.gitkeep
 data/experiments/sealed-unknown-evaluation/**
+data/datasets/**
+!data/datasets/.gitkeep

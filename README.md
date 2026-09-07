@@ -158,6 +158,11 @@ The sealed unknown evaluation harness is intentionally separated under
 `experiments/sealed_unknowns`. Its artifacts are evaluation-only and are forbidden from
 Isolation Forest fitting, XGBoost fitting, feature selection, calibration and rejection
 threshold selection.
+
+Phase 5 begins with a deterministic smoke-dataset plan containing 10 healthy runs and
+five runs for each of the nine known fault classes. The plan is validated before the
+long-running Docker experiment starts, and the sealed unknown families are rejected from
+this dataset by construction.
 See `docs/phase-4.md` for the staged injector acceptance process.
 
 Infrastructure probes are run through `python -m experiments.faults.probe`. Each probe
