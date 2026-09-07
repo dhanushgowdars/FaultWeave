@@ -83,6 +83,11 @@ events, protected ground truth, manifests, interval boundaries and checksums agr
 5C derives a quality profile that confirms class balance, observable-field completeness,
 request/event correlation, timing validity, and sealed-unknown exclusion before Phase 6.
 
+Phase 6A freezes 280 complete 120-second runs: 60 normal, 180 known-fault and 40
+sealed-unknown evaluation runs. The 240 eligible runs use a whole-run 60/20/20 split
+(144/48/48). Sealed unknown runs use only `evaluation_only` and explicitly forbid both
+training and threshold tuning.
+
 ## Modelling contract
 
 - Initial feature windows are 30 seconds with a 5-second step; later compare 10, 30,
