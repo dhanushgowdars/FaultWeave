@@ -88,6 +88,10 @@ sealed-unknown evaluation runs. The 240 eligible runs use a whole-run 60/20/20 s
 (144/48/48). Sealed unknown runs use only `evaluation_only` and explicitly forbid both
 training and threshold tuning.
 
+Phase 6B executes the eligible and evaluation-only partitions separately with unique
+attempt IDs, checksum-based resume, protected labels, and automatic fault cleanup and
+recovery verification. The default command cannot execute sealed unknown runs.
+
 ## Modelling contract
 
 - Initial feature windows are 30 seconds with a 5-second step; later compare 10, 30,

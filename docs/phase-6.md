@@ -23,3 +23,21 @@ python scripts/verify_phase6_plan.py
 
 The plan writer is idempotent: an unchanged contract preserves its existing timestamp
 and checksum so resumable execution remains valid.
+
+## Phase 6B executor
+
+The final executor uses unique attempt namespaces and checksum-based resume. Raw request
+observations, structured events, protected ground truth and manifests remain separate.
+The default `eligible` partition contains only normal and known-fault runs. Sealed
+unknowns require the explicit `evaluation_only` partition and remain marked ineligible
+for training and threshold tuning in both ground truth and manifests.
+
+```text
+python -m datasets.final_executor --dry-run --limit 2
+python -m datasets.final_executor --run-id final-normal-low-01
+python scripts/verify_phase6.py --minimum-runs 1
+python -m datasets.final_executor
+python scripts/verify_phase6.py --require-complete --minimum-runs 240
+python -m datasets.final_executor --partition evaluation_only
+python scripts/verify_phase6.py --partition evaluation_only --require-complete --minimum-runs 40
+```

@@ -31,3 +31,25 @@ class SmokeRunManifest(BaseModel):
     ground_truth: DatasetArtifact
     recovery_verified: bool
     accepted: Literal[True] = True
+
+
+class FinalRunManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    dataset_id: Literal["faultweave-final-dataset-v1"] = "faultweave-final-dataset-v1"
+    run_id: str
+    attempt_id: str = Field(pattern=r"^[a-z0-9-]{1,75}$")
+    scenario_type: Literal["normal", "known_fault", "sealed_unknown"]
+    split: Literal["train", "validation", "test", "evaluation_only"]
+    training_eligible: bool
+    threshold_tuning_eligible: bool
+    started_at: datetime
+    ended_at: datetime
+    git_commit: str | None
+    plan_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    requests: DatasetArtifact
+    events: DatasetArtifact
+    ground_truth: DatasetArtifact
+    recovery_verified: bool
+    accepted: Literal[True] = True
