@@ -26,7 +26,13 @@ from experiments.manifest import (
     sha256_file,
     write_json,
 )
-from experiments.traffic_profiles import PROFILES, TrafficProfile, get_profile, request_offsets
+from experiments.traffic_profiles import (
+    PROFILES,
+    TrafficProfile,
+    get_profile,
+    request_offsets,
+    resolve_rate_segments,
+)
 from scripts.collect_logs import extract_event
 
 PROJECT_DIRECTORY = Path(__file__).resolve().parents[1]
@@ -62,6 +68,7 @@ def build_plan(
     seed: int,
     duration_seconds: float,
     target_rps: float,
+    maximum_rps: float | None = None,
 ) -> list[PlannedRequest]:
     rng = random.Random(seed)
     return [
@@ -72,7 +79,7 @@ def build_plan(
             amount_minor=rng.randint(100, 100_000),
         )
         for index, offset in enumerate(
-            request_offsets(profile, duration_seconds, target_rps),
+            request_offsets(profile, duration_seconds, target_rps, maximum_rps),
             start=1,
         )
     ]
@@ -417,8 +424,13 @@ def run_experiment(
         actual_duration_seconds=actual_duration,
         target_rps=rps,
         rate_segments=[
-            {"fraction": segment.fraction, "multiplier": segment.multiplier}
-            for segment in profile.rate_segments
+            {
+                "fraction": segment.duration_seconds / duration,
+                "offset_seconds": segment.offset_seconds,
+                "duration_seconds": segment.duration_seconds,
+                "multiplier": segment.multiplier,
+            }
+            for segment in resolve_rate_segments(profile, duration)
         ],
         started_at=started_at,
         ended_at=ended_at,

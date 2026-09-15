@@ -16,7 +16,7 @@ from experiments.manifest import sha256_file, write_json
 from experiments.runner import build_plan, current_git_commit, execute_plan, write_jsonl
 from experiments.sealed_unknowns.lifecycle import SealedUnknownLease, SealedUnknownStateStore
 from experiments.suite import calibrated_high_rps
-from experiments.traffic_profiles import get_profile
+from experiments.traffic_profiles import get_profile, resolve_rate_segments
 
 from .artifacts import FinalRunManifest
 from .contracts import FinalDatasetPlan, FinalRunSpec
@@ -91,12 +91,24 @@ def execute_final_run(run: FinalRunSpec, plan_hash: str, gateway_url: str) -> Fi
     sequence = 1
     if run.scenario_type == "normal":
         profile = get_profile(run.profile)
-        rps = (
+        calibrated_limit = (
             calibrated_high_rps(PROJECT_DIRECTORY / "data" / "experiments")
+            if run.profile in {"high_healthy", "short_burst"}
+            else None
+        )
+        rps = (
+            calibrated_limit
             if run.profile == "high_healthy"
             else profile.target_rps
         )
-        planned = build_plan(profile, run.seed, run.intervals[0].duration_seconds, rps)
+        maximum_rps = calibrated_limit if run.profile == "short_burst" else None
+        planned = build_plan(
+            profile,
+            run.seed,
+            run.intervals[0].duration_seconds,
+            rps,
+            maximum_rps,
+        )
         interval_started = utc_now()
         results = asyncio.run(
             execute_plan(planned, gateway_url, run.run_id, run.seed, 150, attempt_id)
@@ -106,7 +118,23 @@ def execute_final_run(run: FinalRunSpec, plan_hash: str, gateway_url: str) -> Fi
             result["interval"] = "normal"
         requests.extend(results)
         interval_truth.append(
-            {"name": "normal", "started_at": iso(interval_started), "ended_at": iso(interval_ended)}
+            {
+                "name": "normal",
+                "started_at": iso(interval_started),
+                "ended_at": iso(interval_ended),
+                "rate_schedule": [
+                    {
+                        "offset_seconds": segment.offset_seconds,
+                        "duration_seconds": segment.duration_seconds,
+                        "target_rps": min(rps * segment.multiplier, maximum_rps)
+                        if maximum_rps is not None
+                        else rps * segment.multiplier,
+                    }
+                    for segment in resolve_rate_segments(
+                        profile, run.intervals[0].duration_seconds
+                    )
+                ],
+            }
         )
     else:
         baseline, fault_interval, recovery = run.intervals

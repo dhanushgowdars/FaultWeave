@@ -30,12 +30,25 @@ class TrafficProfile:
     duration_seconds: float
     scenario_weights: ScenarioWeights
     rate_segments: tuple[RateSegment, ...] = (RateSegment(1.0, 1.0),)
+    fixed_middle_segment_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.target_rps <= 0 or self.duration_seconds <= 0:
             raise ValueError("rate and duration must be positive")
         if abs(sum(segment.fraction for segment in self.rate_segments) - 1.0) > 1e-9:
             raise ValueError("rate segment fractions must total 1.0")
+        if self.fixed_middle_segment_seconds is not None:
+            if self.fixed_middle_segment_seconds <= 0:
+                raise ValueError("fixed middle-segment duration must be positive")
+            if len(self.rate_segments) != 3:
+                raise ValueError("fixed middle-segment profiles require three rate segments")
+
+
+@dataclass(frozen=True)
+class ResolvedRateSegment:
+    offset_seconds: float
+    duration_seconds: float
+    multiplier: float
 
 
 COMMON_NORMAL_MIX = ScenarioWeights(
@@ -78,6 +91,7 @@ PROFILES: dict[str, TrafficProfile] = {
             RateSegment(0.2, 4.0),
             RateSegment(0.4, 1.0),
         ),
+        fixed_middle_segment_seconds=6.0,
     ),
     "normal_errors": TrafficProfile(
         name="normal_errors",
@@ -106,13 +120,60 @@ def request_offsets(
     profile: TrafficProfile,
     duration_seconds: float,
     target_rps: float,
+    maximum_rps: float | None = None,
 ) -> list[float]:
+    if maximum_rps is not None and maximum_rps <= 0:
+        raise ValueError("maximum rate must be positive")
     offsets: list[float] = []
-    segment_start = 0.0
-    for segment in profile.rate_segments:
-        segment_duration = duration_seconds * segment.fraction
+    for segment in resolve_rate_segments(profile, duration_seconds):
+        segment_start = segment.offset_seconds
+        segment_duration = segment.duration_seconds
         segment_rps = target_rps * segment.multiplier
+        if maximum_rps is not None:
+            segment_rps = min(segment_rps, maximum_rps)
         request_count = max(1, round(segment_duration * segment_rps))
-        offsets.extend(segment_start + index / segment_rps for index in range(request_count))
-        segment_start += segment_duration
+        segment_end = segment_start + segment_duration
+        offsets.extend(
+            offset
+            for index in range(request_count)
+            if (offset := segment_start + index / segment_rps) < segment_end
+        )
     return [offset for offset in offsets if offset < duration_seconds]
+
+
+def resolve_rate_segments(
+    profile: TrafficProfile,
+    duration_seconds: float,
+) -> tuple[ResolvedRateSegment, ...]:
+    """Resolve a profile into an exact, reproducible schedule for one run."""
+    if duration_seconds <= 0:
+        raise ValueError("duration must be positive")
+    fixed_middle = profile.fixed_middle_segment_seconds
+    if fixed_middle is None:
+        segment_start = 0.0
+        resolved: list[ResolvedRateSegment] = []
+        for segment in profile.rate_segments:
+            segment_duration = duration_seconds * segment.fraction
+            resolved.append(
+                ResolvedRateSegment(segment_start, segment_duration, segment.multiplier)
+            )
+            segment_start += segment_duration
+        return tuple(resolved)
+    if duration_seconds < fixed_middle:
+        raise ValueError(
+            "duration cannot be shorter than the profile's fixed middle segment"
+        )
+    shoulder_duration = (duration_seconds - fixed_middle) / 2
+    return (
+        ResolvedRateSegment(0.0, shoulder_duration, profile.rate_segments[0].multiplier),
+        ResolvedRateSegment(
+            shoulder_duration,
+            fixed_middle,
+            profile.rate_segments[1].multiplier,
+        ),
+        ResolvedRateSegment(
+            shoulder_duration + fixed_middle,
+            shoulder_duration,
+            profile.rate_segments[2].multiplier,
+        ),
+    )

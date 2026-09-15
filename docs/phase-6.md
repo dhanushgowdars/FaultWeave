@@ -41,3 +41,11 @@ python scripts/verify_phase6.py --require-complete --minimum-runs 240
 python -m datasets.final_executor --partition evaluation_only
 python scripts/verify_phase6.py --partition evaluation_only --require-complete --minimum-runs 40
 ```
+### Normal short-burst schedule
+
+Final-dataset `short_burst` runs preserve the Phase 3 shape: a centered six-second peak
+surrounded by 5 requests/second baseline traffic. Extending a normal run to 120 seconds
+lengthens only the baseline shoulders (57 seconds each); it does not stretch the burst.
+The peak is capped at the host's recorded high-but-healthy calibration boundary, preventing
+a normal run from crossing into overload. The resolved schedule is stored in each new run's
+ground-truth artifact.

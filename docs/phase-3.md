@@ -13,7 +13,7 @@ Expected user mistakes are normal client behaviour and remain distinct from serv
 | `low` | 3 req/s | Steady low normal traffic |
 | `medium` | 12 req/s | Steady medium normal traffic |
 | `high_healthy` | About 40 req/s, calibrated | Upper healthy operating envelope |
-| `short_burst` | 5 req/s base, 20 req/s burst | Brief healthy demand variation |
+| `short_burst` | 5 req/s base, centered burst for 6 seconds | Brief healthy demand variation; the peak duration remains fixed and final-dataset execution caps it at the calibrated healthy boundary |
 | `normal_errors` | 5 req/s | More wrong-password, missing-account, and invalid-amount requests |
 
 All profiles are deterministic for a given profile, seed, duration, and rate. Each request
