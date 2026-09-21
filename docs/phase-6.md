@@ -49,3 +49,11 @@ lengthens only the baseline shoulders (57 seconds each); it does not stretch the
 The peak is capped at the host's recorded high-but-healthy calibration boundary, preventing
 a normal run from crossing into overload. The resolved schedule is stored in each new run's
 ground-truth artifact.
+## Phase 6C: final-dataset quality profile
+
+After all 280 runs are complete, run `python scripts/verify_phase6c.py`. The profiler first
+reuses the Phase 6 checksum and isolation verifier, then independently measures request/event
+correlation, ground-truth interval assignment, per-run fault signal, clean recovery, service and
+event-type diversity, and optional-field null rates grouped by event type. Its report is written
+to `data/datasets/final/quality/profile.json`. Global optional-field null percentages are not used
+as a quality gate because many structured event fields are intentionally event-type-specific.
