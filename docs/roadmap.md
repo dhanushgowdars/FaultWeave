@@ -18,7 +18,7 @@ dataset integrity, model separation, unknown-fault isolation, and evaluation can
 | 7 | Feature engineering | Deterministic window features; 10/30/60-second comparison; no label leakage |
 | 8 | Isolation Forest | Fit on healthy training windows only; validate threshold without sealed unknowns |
 | 9 | XGBoost | Fit only on known-fault intervals; held-out known-class evaluation; sealed unknowns excluded |
-| 10 | Rule-based baseline | Non-ML baseline evaluated before final scientific comparison |
+| 10 | Rule-based baseline | Transparent healthy-envelope rules fitted only on normal training windows |
 | 11 | Open-set rejection | IF strength, XGBoost confidence, and novelty produce `UNKNOWN ABNORMAL PATTERN` |
 | 11B | Leave-one-known-fault-out validation | Rejection tuned without using sealed unknown families |
 | 12 | Incident correlation and localization | NetworkX incident graph and `probable_originating_service`, never guaranteed root cause |
