@@ -16,9 +16,9 @@ dataset integrity, model separation, unknown-fault isolation, and evaluation can
 | 5 | Smoke dataset | Small runs reveal instrumentation, separability, recovery, and leakage problems |
 | 6 | Final dataset | Raw events, manifests, ground truth, and run-level splits are separate and immutable |
 | 7 | Feature engineering | Deterministic window features; 10/30/60-second comparison; no label leakage |
-| 8 | Rule-based baseline | Non-ML baseline evaluated before ML |
-| 9 | Isolation Forest | Fit on healthy training windows only |
-| 10 | XGBoost | Fit only on known abnormal classes; calibrated on allowed validation runs |
+| 8 | Isolation Forest | Fit on healthy training windows only; validate threshold without sealed unknowns |
+| 9 | XGBoost | Fit only on known abnormal classes; calibrated on allowed validation runs |
+| 10 | Rule-based baseline | Non-ML baseline evaluated before final scientific comparison |
 | 11 | Open-set rejection | IF strength, XGBoost confidence, and novelty produce `UNKNOWN ABNORMAL PATTERN` |
 | 11B | Leave-one-known-fault-out validation | Rejection tuned without using sealed unknown families |
 | 12 | Incident correlation and localization | NetworkX incident graph and `probable_originating_service`, never guaranteed root cause |
