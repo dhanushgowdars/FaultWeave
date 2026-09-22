@@ -92,6 +92,19 @@ Phase 6B executes the eligible and evaluation-only partitions separately with un
 attempt IDs, checksum-based resume, protected labels, and automatic fault cleanup and
 recovery verification. The default command cannot execute sealed unknown runs.
 
+## Phase 7 feature contract
+
+Phase 7 derives separate non-overlapping 10, 30 and 60-second feature tables from the
+immutable Phase 6 artifacts. Every window stays inside one run and one ground-truth
+interval. Model vectors contain only observable request and structured-event aggregates;
+identifiers, timestamps, split metadata, labels, fault family, target, intensity and
+eligibility flags are protected metadata and never feature values.
+
+Generated sealed-unknown rows remain evaluation-only, with fitting and threshold-tuning
+both forbidden. The Phase 7 verifier checks checksums, expected window counts, whole-run
+split preservation, feature schema stability, protected-field exclusion and unknown
+isolation before later model phases can begin.
+
 ## Modelling contract
 
 - Initial feature windows are 30 seconds with a 5-second step; later compare 10, 30,
