@@ -100,6 +100,11 @@ features, including latency dispersion and tails, error families, dependency fai
 and per-service behavior. Existing feature/model artifacts are retained for comparison,
 and sealed unknowns remain evaluation-only throughout rebuilding and retraining.
 
+Phase 12 performs dependency-aware incident localization over the complete correlated event
+stream. It ranks services, PostgreSQL and directed dependency edges using baseline-relative
+failure, latency, error and first-abnormal evidence. Ground-truth targets are applied only
+after ranking to evaluate Top-1 and Top-3 accuracy, and sealed unknowns remain evaluation-only.
+
 ## Phase 7 feature contract
 
 Phase 7 derives separate non-overlapping 10, 30 and 60-second feature tables from the
