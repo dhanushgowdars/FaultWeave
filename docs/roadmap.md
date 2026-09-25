@@ -19,8 +19,10 @@ dataset integrity, model separation, unknown-fault isolation, and evaluation can
 | 8 | Isolation Forest | Fit on healthy training windows only; validate threshold without sealed unknowns |
 | 9 | XGBoost | Fit only on known-fault intervals; held-out known-class evaluation; sealed unknowns excluded |
 | 10 | Rule-based baseline | Transparent healthy-envelope rules fitted only on normal training windows |
-| 11 | Open-set rejection | IF strength, XGBoost confidence, and novelty produce `UNKNOWN ABNORMAL PATTERN` |
-| 11B | Leave-one-known-fault-out validation | Rejection tuned without using sealed unknown families |
+| 11 | Open-set rejection | Anomaly gate plus validation-calibrated confidence yields `UNKNOWN ABNORMAL PATTERN` |
+| 11B | Leave-one-known-fault-out validation | Nine synthetic-unseen folds tune rejection without sealed unknown data |
+| 11C | Full-data feature remediation | Rebuild observable rich features from all raw events; retrain without sealed-unknown tuning |
+| 11D | Class-conditional open-set support | 60-second anomaly gate plus validation-calibrated class support; original unknowns become development evaluation |
 | 12 | Incident correlation and localization | NetworkX incident graph and `probable_originating_service`, never guaranteed root cause |
 | 13 | Severity and detection delay | Deterministic severity; delay measured from injection start to first confirmed anomaly |
 | 14 | Live inference API | Offline-trained artifacts loaded by API; SSE updates; no Kafka |
@@ -91,6 +93,12 @@ training and threshold tuning.
 Phase 6B executes the eligible and evaluation-only partitions separately with unique
 attempt IDs, checksum-based resume, protected labels, and automatic fault cleanup and
 recovery verification. The default command cannot execute sealed unknown runs.
+
+Phase 11C addresses the information bottleneck found during open-set evaluation. It
+reprocesses every accepted Phase 6 request and event into richer observable-only window
+features, including latency dispersion and tails, error families, dependency failures,
+and per-service behavior. Existing feature/model artifacts are retained for comparison,
+and sealed unknowns remain evaluation-only throughout rebuilding and retraining.
 
 ## Phase 7 feature contract
 

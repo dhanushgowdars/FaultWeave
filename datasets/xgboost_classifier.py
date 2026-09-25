@@ -15,7 +15,6 @@ from .final_features import FEATURE_NAMES
 from .isolation_forest_model import FeatureRow, read_feature_rows
 
 MODEL_SCHEMA_VERSION = "1.0"
-WINDOW_SECONDS = 30
 RANDOM_STATE = 20260922
 MODEL_CONFIG = {"n_estimators": 160, "max_depth": 4, "learning_rate": 0.08, "subsample": 0.9}
 
@@ -59,6 +58,10 @@ def build_xgboost_classifier(
     feature_path: Path, output_root: Path, report_path: Path
 ) -> dict[str, Any]:
     rows = read_feature_rows(feature_path)
+    window_sizes = {row.window_seconds for row in rows}
+    if len(window_sizes) != 1:
+        raise ValueError("feature input must contain exactly one window size")
+    window_seconds = window_sizes.pop()
     train = known_fault_rows(rows, "train")
     validation = known_fault_rows(rows, "validation")
     test = known_fault_rows(rows, "test")
@@ -87,7 +90,7 @@ def build_xgboost_classifier(
     metadata = {
         "schema_version": MODEL_SCHEMA_VERSION,
         "model_type": "XGBoost known-fault classifier",
-        "window_seconds": WINDOW_SECONDS,
+        "window_seconds": window_seconds,
         "feature_names": list(FEATURE_NAMES),
         "classes": classes,
         "training": {

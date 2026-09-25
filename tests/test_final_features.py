@@ -56,10 +56,10 @@ def truth() -> dict[str, object]:
     }
 
 
-def request(at: datetime) -> dict[str, object]:
+def request(at: datetime, latency_ms: float = 100.0) -> dict[str, object]:
     return {
         "started_at": at.isoformat(),
-        "latency_ms": 100.0,
+        "latency_ms": latency_ms,
         "status_code": 200,
         "expected_outcome": True,
         "transport_error": None,
@@ -67,16 +67,23 @@ def request(at: datetime) -> dict[str, object]:
     }
 
 
-def event(at: datetime) -> dict[str, object]:
+def event(
+    at: datetime,
+    latency_ms: float | None = None,
+    *,
+    success: bool = True,
+    error_type: str | None = None,
+) -> dict[str, object]:
     return {
         "timestamp": at.isoformat(),
         "service": "gateway",
         "event_type": "transaction_flow_started",
         "level": "INFO",
-        "success": True,
-        "latency_ms": None,
+        "success": success,
+        "latency_ms": latency_ms,
         "status_code": None,
-        "downstream_service": None,
+        "downstream_service": "ledger" if latency_ms is not None else None,
+        "error_type": error_type,
     }
 
 
@@ -100,6 +107,25 @@ def test_feature_values_exclude_label_and_identifier_metadata() -> None:
     assert "fault_id" not in row["features"]
     assert "run_id" not in row["features"]
     assert row["features"]["request_count"] == 1.0
+
+
+def test_feature_values_preserve_jitter_and_dependency_failure_signals() -> None:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    row = feature_record(
+        _windows_from_truth(manifest(), truth(), 30)[0],
+        [request(start, 10.0), request(start, 1000.0)],
+        [
+            event(start, 10.0),
+            event(start, 1000.0, success=False, error_type="ConnectError"),
+        ],
+    )
+    features = row["features"]
+    assert features["request_latency_std_ms"] > 0.0
+    assert features["request_latency_max_to_p50_ratio"] > 1.0
+    assert features["event_connection_error_rate"] > 0.0
+    assert features["event_dependency_failure_rate"] > 0.0
+    assert features["event_service_gateway_failure_rate"] > 0.0
+    assert features["event_downstream_ledger_failure_rate"] > 0.0
 
 
 def test_bucket_assigns_only_records_inside_a_complete_window() -> None:

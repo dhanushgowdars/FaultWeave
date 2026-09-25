@@ -17,7 +17,6 @@ from experiments.manifest import sha256_file, write_json
 from .final_features import FEATURE_NAMES
 
 MODEL_SCHEMA_VERSION = "1.0"
-WINDOW_SECONDS = 30
 MODEL_RANDOM_STATE = 20260922
 MODEL_CONFIG = {"n_estimators": 300, "max_samples": "auto", "contamination": "auto"}
 
@@ -32,6 +31,7 @@ class FeatureRow:
     label: str
     interval: str
     features: tuple[float, ...]
+    window_seconds: int = 30
 
 
 def read_feature_rows(path: Path) -> list[FeatureRow]:
@@ -56,6 +56,7 @@ def read_feature_rows(path: Path) -> list[FeatureRow]:
                     threshold_tuning_eligible=bool(item["threshold_tuning_eligible"]),
                     label=str(item["label"]),
                     interval=str(item["interval"]),
+                    window_seconds=int(item["window_seconds"]),
                     features=vector,
                 )
             )
@@ -150,6 +151,10 @@ def build_isolation_forest(
     feature_path: Path, output_root: Path, feature_report_path: Path
 ) -> dict[str, Any]:
     rows = read_feature_rows(feature_path)
+    window_sizes = {row.window_seconds for row in rows}
+    if len(window_sizes) != 1:
+        raise ValueError("feature input must contain exactly one window size")
+    window_seconds = window_sizes.pop()
     training = normal_training_rows(rows)
     validation = validation_rows(rows)
     scaler = StandardScaler().fit(_vectors(training))
@@ -179,7 +184,7 @@ def build_isolation_forest(
     metadata = {
         "schema_version": MODEL_SCHEMA_VERSION,
         "model_type": "IsolationForest",
-        "window_seconds": WINDOW_SECONDS,
+        "window_seconds": window_seconds,
         "feature_names": list(FEATURE_NAMES),
         "threshold": threshold,
         "training": {

@@ -15,7 +15,7 @@ from experiments.manifest import sha256_file, write_json
 from .artifacts import FinalRunManifest
 from .final_quality_profile import iter_jsonl, parse_timestamp, percentile, read_json
 
-FEATURE_SCHEMA_VERSION = "1.0"
+FEATURE_SCHEMA_VERSION = "2.0"
 WINDOW_SECONDS = (10, 30, 60)
 SERVICE_NAMES = ("gateway", "authentication", "transaction", "payment", "account", "ledger")
 SCENARIO_NAMES = ("valid", "invalid_login", "invalid_account", "invalid_amount")
@@ -47,7 +47,11 @@ FEATURE_NAMES = (
     "request_latency_mean_ms",
     "request_latency_p50_ms",
     "request_latency_p95_ms",
+    "request_latency_p99_ms",
     "request_latency_max_ms",
+    "request_latency_std_ms",
+    "request_latency_iqr_ms",
+    "request_latency_max_to_p50_ratio",
     "request_success_rate",
     "request_non_2xx_rate",
     "request_client_error_rate",
@@ -64,12 +68,25 @@ FEATURE_NAMES = (
     "event_failure_rate",
     "event_success_rate",
     "event_latency_mean_ms",
+    "event_latency_p50_ms",
     "event_latency_p95_ms",
+    "event_latency_p99_ms",
+    "event_latency_max_ms",
+    "event_latency_std_ms",
+    "event_latency_iqr_ms",
+    "event_latency_max_to_p50_ratio",
     "event_non_2xx_rate",
+    "event_error_type_rate",
+    "event_timeout_error_rate",
+    "event_connection_error_rate",
+    "event_dependency_failure_rate",
     "event_downstream_call_rate",
     "event_distinct_service_count",
     "event_distinct_type_count",
     *(f"event_service_{service}_count" for service in SERVICE_NAMES),
+    *(f"event_service_{service}_failure_rate" for service in SERVICE_NAMES),
+    *(f"event_service_{service}_latency_p95_ms" for service in SERVICE_NAMES),
+    *(f"event_downstream_{service}_failure_rate" for service in SERVICE_NAMES),
 )
 
 PROTECTED_FIELDS = (
@@ -96,6 +113,31 @@ def _rate(count: int, total: int) -> float:
 
 def _mean(values: list[float]) -> float:
     return round(sum(values) / len(values), 3) if values else 0.0
+
+
+def _std(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    mean = sum(values) / len(values)
+    return round(math.sqrt(sum((value - mean) ** 2 for value in values) / len(values)), 3)
+
+
+def _latency_shape(values: list[float], prefix: str) -> dict[str, float]:
+    p25 = float(percentile(values, 0.25) or 0.0)
+    p50 = float(percentile(values, 0.50) or 0.0)
+    p95 = float(percentile(values, 0.95) or 0.0)
+    p99 = float(percentile(values, 0.99) or 0.0)
+    maximum = round(max(values), 3) if values else 0.0
+    return {
+        f"{prefix}_mean_ms": _mean(values),
+        f"{prefix}_p50_ms": p50,
+        f"{prefix}_p95_ms": p95,
+        f"{prefix}_p99_ms": p99,
+        f"{prefix}_max_ms": maximum,
+        f"{prefix}_std_ms": _std(values),
+        f"{prefix}_iqr_ms": round(float(percentile(values, 0.75) or 0.0) - p25, 3),
+        f"{prefix}_max_to_p50_ratio": round(maximum / max(p50, 1e-9), 6),
+    }
 
 
 def _numeric(value: Any) -> float | None:
@@ -176,13 +218,11 @@ def _request_features(records: list[dict[str, Any]], duration_seconds: float) ->
     statuses = [item.get("status_code") for item in records]
     non_2xx = sum(status is None or not 200 <= int(status) < 300 for status in statuses)
     scenarios = Counter(str(item.get("scenario")) for item in records)
+    latency_shape = _latency_shape(latencies, "request_latency")
     result = {
         "request_count": float(count),
         "request_rate_per_second": round(count / duration_seconds, 6),
-        "request_latency_mean_ms": _mean(latencies),
-        "request_latency_p50_ms": float(percentile(latencies, 0.50) or 0.0),
-        "request_latency_p95_ms": float(percentile(latencies, 0.95) or 0.0),
-        "request_latency_max_ms": round(max(latencies), 3) if latencies else 0.0,
+        **latency_shape,
         "request_success_rate": _rate(
             sum(item.get("expected_outcome") is True for item in records), count
         ),
@@ -214,6 +254,16 @@ def _event_features(records: list[dict[str, Any]], duration_seconds: float) -> d
     statuses = [item.get("status_code") for item in records]
     services = Counter(str(item.get("service")) for item in records)
     types = {str(item.get("event_type")) for item in records}
+    error_types = [str(item.get("error_type") or "").lower() for item in records]
+    service_records = {
+        service: [item for item in records if item.get("service") == service]
+        for service in SERVICE_NAMES
+    }
+    downstream_records = {
+        service: [item for item in records if item.get("downstream_service") == service]
+        for service in SERVICE_NAMES
+    }
+    latency_shape = _latency_shape(latencies, "event_latency")
     result = {
         "event_count": float(count),
         "event_rate_per_second": round(count / duration_seconds, 6),
@@ -222,10 +272,27 @@ def _event_features(records: list[dict[str, Any]], duration_seconds: float) -> d
         ),
         "event_failure_rate": _rate(sum(item.get("success") is False for item in records), count),
         "event_success_rate": _rate(sum(item.get("success") is True for item in records), count),
-        "event_latency_mean_ms": _mean(latencies),
-        "event_latency_p95_ms": float(percentile(latencies, 0.95) or 0.0),
+        **latency_shape,
         "event_non_2xx_rate": _rate(
             sum(status is not None and not 200 <= int(status) < 300 for status in statuses), count
+        ),
+        "event_error_type_rate": _rate(sum(bool(value) for value in error_types), count),
+        "event_timeout_error_rate": _rate(
+            sum("timeout" in value or "timed_out" in value for value in error_types), count
+        ),
+        "event_connection_error_rate": _rate(
+            sum(
+                any(token in value for token in ("connect", "network", "socket", "reset"))
+                for value in error_types
+            ),
+            count,
+        ),
+        "event_dependency_failure_rate": _rate(
+            sum(
+                item.get("downstream_service") is not None and item.get("success") is False
+                for item in records
+            ),
+            count,
         ),
         "event_downstream_call_rate": _rate(
             sum(item.get("downstream_service") is not None for item in records), count
@@ -235,6 +302,40 @@ def _event_features(records: list[dict[str, Any]], duration_seconds: float) -> d
     }
     result.update(
         {f"event_service_{service}_count": float(services[service]) for service in SERVICE_NAMES}
+    )
+    result.update(
+        {
+            f"event_service_{service}_failure_rate": _rate(
+                sum(item.get("success") is False for item in service_records[service]),
+                len(service_records[service]),
+            )
+            for service in SERVICE_NAMES
+        }
+    )
+    result.update(
+        {
+            f"event_service_{service}_latency_p95_ms": float(
+                percentile(
+                    [
+                        value
+                        for item in service_records[service]
+                        if (value := _numeric(item.get("latency_ms"))) is not None
+                    ],
+                    0.95,
+                )
+                or 0.0
+            )
+            for service in SERVICE_NAMES
+        }
+    )
+    result.update(
+        {
+            f"event_downstream_{service}_failure_rate": _rate(
+                sum(item.get("success") is False for item in downstream_records[service]),
+                len(downstream_records[service]),
+            )
+            for service in SERVICE_NAMES
+        }
     )
     return result
 
