@@ -190,6 +190,7 @@ services:
       AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8000}
       ACCOUNT_SERVICE_URL: ${ACCOUNT_SERVICE_URL:-http://account-service:8000}
       TRANSACTION_SERVICE_URL: ${TRANSACTION_SERVICE_URL:-http://transaction-service:8000}
+      FAULTWEAVE_MODEL_ROOT: ${FAULTWEAVE_MODEL_ROOT:-/faultweave-models}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
@@ -201,6 +202,9 @@ services:
         condition: service_healthy
       transaction-service:
         condition: service_healthy
+    volumes:
+      - ./data/fault-control:/faultweave-control:ro
+      - ./data/datasets/final/models:/faultweave-models:ro
     ports:
       - "${GATEWAY_HOST_PORT:-18110}:8000"
     healthcheck:
