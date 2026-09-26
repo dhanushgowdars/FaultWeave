@@ -11,12 +11,16 @@ enter the rolling buffer.
 
 The live feature builder intentionally reproduces the frozen Phase 11C feature mathematics.
 Dedicated regression tests compare the live request/event feature calculations directly with
-`datasets/final_features.py`. Request observations are derived from observable gateway
-completion events: HTTP 401 maps to the existing `invalid_login` bucket, 404 to
-`invalid_account`, 422 to `invalid_amount`, and other responses to `valid`. Responses 200,
-401, 404 and 422 are expected application outcomes; operational 5xx responses are unexpected.
-No fault family, injected interval, dataset label, split or expected origin is available to the
-live builder.
+`datasets/final_features.py`.
+
+The frozen training dataset measured request latency at the traffic source, outside the
+gateway. Therefore exact frozen-model inference also requires client-observed request
+telemetry (`started_at`, end-to-end `latency_ms`, status/outcome and workload scenario).
+Gateway completion events remain available as a feature-only fallback, but that fallback is
+not accepted for frozen live inference because server-side latency is not measurement-equivalent
+to the client-side request latency used during training. Instrumented FaultWeave traffic
+sources post request observations separately from structured service events. No fault family,
+injected interval, dataset label, split or expected origin is accepted by that contract.
 
 Two event-time windows are exposed:
 

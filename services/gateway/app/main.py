@@ -20,6 +20,10 @@ from .intelligence_inference import (
     IntelligenceInferenceRequest,
     run_intelligence_inference,
 )
+from .intelligence_incidents import (
+    LiveIncidentManager,
+    get_live_incident_manager,
+)
 from .intelligence_live import (
     LiveTelemetryBatch,
     LiveTelemetryBuffer,
@@ -105,7 +109,7 @@ async def intelligence_telemetry(
     payload: LiveTelemetryBatch,
     buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
 ) -> dict[str, object]:
-    summary = buffer.ingest(payload.events)
+    summary = buffer.ingest(payload.events, payload.requests)
     logger.info(
         "intelligence_telemetry_ingested",
         "Live telemetry batch ingested",
@@ -114,6 +118,7 @@ async def intelligence_telemetry(
             "accepted": summary["accepted"],
             "ignored": summary["ignored"],
             "duplicates": summary["duplicates"],
+            "accepted_requests": summary["accepted_requests"],
         },
     )
     return {"status": "accepted", **summary}
@@ -122,11 +127,15 @@ async def intelligence_telemetry(
 def _live_snapshot_or_409(
     buffer: LiveTelemetryBuffer,
     window_seconds: int,
+    *,
+    require_client_requests: bool = False,
 ) -> dict[str, object]:
     if window_seconds not in {10, 60}:
         raise HTTPException(status_code=422, detail="window_seconds must be 10 or 60")
     try:
-        return buffer.snapshot(window_seconds)
+        return buffer.snapshot(
+            window_seconds, require_client_requests=require_client_requests
+        )
     except LiveWindowNotReady as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -145,7 +154,9 @@ async def intelligence_live_infer(
     buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
     artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
 ) -> dict[str, object]:
-    snapshot = _live_snapshot_or_409(buffer, window_seconds)
+    snapshot = _live_snapshot_or_409(
+        buffer, window_seconds, require_client_requests=True
+    )
     payload = IntelligenceInferenceRequest(
         window_seconds=window_seconds,
         features=snapshot["features"],
@@ -155,6 +166,52 @@ async def intelligence_live_infer(
     except InferenceInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"window": snapshot, "result": result}
+
+
+@app.post("/api/v1/intelligence/live/evaluate")
+async def intelligence_live_evaluate(
+    buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
+    artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
+    manager: LiveIncidentManager = Depends(get_live_incident_manager),
+) -> dict[str, object]:
+    try:
+        result = manager.evaluate(buffer, artifacts)
+    except LiveWindowNotReady as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    logger.info(
+        "intelligence_incident_evaluated",
+        "Live incident lifecycle evaluated",
+        outcome=LogOutcome.SUCCESS,
+        attributes={"status": result["status"]},
+    )
+    return result
+
+
+@app.get("/api/v1/intelligence/incidents/current")
+async def intelligence_current_incident(
+    manager: LiveIncidentManager = Depends(get_live_incident_manager),
+) -> dict[str, object]:
+    incident = manager.current_incident()
+    return {"active": incident is not None, "incident": incident}
+
+
+@app.get("/api/v1/intelligence/incidents")
+async def intelligence_incidents(
+    manager: LiveIncidentManager = Depends(get_live_incident_manager),
+) -> dict[str, object]:
+    rows = manager.incidents()
+    return {"count": len(rows), "incidents": rows}
+
+
+@app.get("/api/v1/intelligence/incidents/{incident_id}")
+async def intelligence_incident_detail(
+    incident_id: str,
+    manager: LiveIncidentManager = Depends(get_live_incident_manager),
+) -> dict[str, object]:
+    incident = manager.incident(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+    return incident
 
 
 @app.post("/api/v1/transactions", response_model=TransactionFlowResponse)

@@ -6,10 +6,10 @@ import math
 from collections import Counter, deque
 from datetime import UTC, datetime, timedelta
 from threading import RLock
-from typing import Any
+from typing import Any, Literal
 
 from faultweave_common.logging import StructuredLogEvent
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 WINDOW_SECONDS = (10, 60)
 SERVICE_NAMES = ("gateway", "authentication", "transaction", "payment", "account", "ledger")
@@ -22,10 +22,30 @@ class LiveWindowNotReady(RuntimeError):
     """Raised when the live telemetry watermark has not covered a full model window."""
 
 
+class LiveRequestObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=1, max_length=100)
+    trace_id: str | None = Field(default=None, max_length=100)
+    started_at: datetime
+    latency_ms: float = Field(ge=0)
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    expected_outcome: bool
+    transport_error: str | None = Field(default=None, max_length=150)
+    scenario: Literal["valid", "invalid_login", "invalid_account", "invalid_amount"]
+
+
 class LiveTelemetryBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    events: list[StructuredLogEvent] = Field(min_length=1, max_length=500)
+    events: list[StructuredLogEvent] = Field(default_factory=list, max_length=500)
+    requests: list[LiveRequestObservation] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def require_observations(self) -> "LiveTelemetryBatch":
+        if not self.events and not self.requests:
+            raise ValueError("telemetry batch must contain events or client request observations")
+        return self
 
 
 def _parse_timestamp(value: Any) -> datetime:
@@ -284,14 +304,23 @@ class LiveTelemetryBuffer:
         self.max_age_seconds = max_age_seconds
         self._events: deque[tuple[datetime, str, dict[str, Any]]] = deque()
         self._seen: set[str] = set()
+        self._requests: deque[tuple[datetime, str, dict[str, Any]]] = deque()
+        self._seen_requests: set[str] = set()
+        self._explicit_request_mode = False
         self._watermark: datetime | None = None
         self._first_observed: datetime | None = None
         self._lock = RLock()
 
-    def ingest(self, events: list[StructuredLogEvent]) -> dict[str, Any]:
+    def ingest(
+        self,
+        events: list[StructuredLogEvent],
+        requests: list[LiveRequestObservation] | None = None,
+    ) -> dict[str, Any]:
         accepted = 0
         ignored = 0
         duplicates = 0
+        accepted_requests = 0
+        duplicate_requests = 0
         ordered = sorted(events, key=lambda item: item.timestamp)
         with self._lock:
             for model in ordered:
@@ -309,14 +338,30 @@ class LiveTelemetryBuffer:
                 self._watermark = max(self._watermark or timestamp, timestamp)
                 self._first_observed = min(self._first_observed or timestamp, timestamp)
                 accepted += 1
+            for model in sorted(requests or [], key=lambda item: item.started_at):
+                record = model.model_dump(mode="json")
+                timestamp = _parse_timestamp(record["started_at"])
+                fingerprint = _fingerprint({"kind": "client_request", **record})
+                if fingerprint in self._seen_requests:
+                    duplicate_requests += 1
+                    continue
+                self._requests.append((timestamp, fingerprint, record))
+                self._seen_requests.add(fingerprint)
+                self._explicit_request_mode = True
+                accepted_requests += 1
             if accepted:
                 self._events = deque(sorted(self._events, key=lambda item: item[0]))
+            if accepted_requests:
+                self._requests = deque(sorted(self._requests, key=lambda item: item[0]))
             self._prune_locked()
             return {
                 "accepted": accepted,
                 "ignored": ignored,
                 "duplicates": duplicates,
+                "accepted_requests": accepted_requests,
+                "duplicate_requests": duplicate_requests,
                 "buffered_events": len(self._events),
+                "buffered_requests": len(self._requests),
                 "watermark": _iso(self._watermark) if self._watermark else None,
             }
 
@@ -324,44 +369,144 @@ class LiveTelemetryBuffer:
         if self._watermark is None:
             return
         cutoff = self._watermark - timedelta(seconds=self.max_age_seconds)
-        changed = False
+        events_changed = False
         while self._events and self._events[0][0] < cutoff:
             self._events.popleft()
-            changed = True
-        if changed:
+            events_changed = True
+        if events_changed:
             self._seen = {fingerprint for _, fingerprint, _ in self._events}
+        requests_changed = False
+        while self._requests and self._requests[0][0] < cutoff:
+            self._requests.popleft()
+            requests_changed = True
+        if requests_changed:
+            self._seen_requests = {
+                fingerprint for _, fingerprint, _ in self._requests
+            }
         self._first_observed = self._events[0][0] if self._events else None
 
-    def snapshot(self, window_seconds: int) -> dict[str, Any]:
+    def snapshot(
+        self,
+        window_seconds: int,
+        *,
+        require_client_requests: bool = False,
+    ) -> dict[str, Any]:
+        with self._lock:
+            ended_at = self._watermark
+        if ended_at is None:
+            raise LiveWindowNotReady("no live telemetry has been observed")
+        return self.snapshot_ending_at(
+            window_seconds,
+            ended_at,
+            require_client_requests=require_client_requests,
+        )
+
+    def snapshot_ending_at(
+        self,
+        window_seconds: int,
+        ended_at: datetime,
+        *,
+        start_tolerance_seconds: float = 0.0,
+        require_client_requests: bool = False,
+    ) -> dict[str, Any]:
         if window_seconds not in WINDOW_SECONDS:
             raise ValueError("live model window must be 10 or 60 seconds")
+        if start_tolerance_seconds < 0:
+            raise ValueError("start tolerance cannot be negative")
+        ended_at = _parse_timestamp(ended_at)
+        started_at = ended_at - timedelta(seconds=window_seconds)
         with self._lock:
-            if self._watermark is None or self._first_observed is None:
-                raise LiveWindowNotReady("no live telemetry has been observed")
-            coverage = (self._watermark - self._first_observed).total_seconds()
-            if coverage < window_seconds:
+            if require_client_requests and not self._explicit_request_mode:
                 raise LiveWindowNotReady(
-                    f"live telemetry coverage is {coverage:.3f}s; "
-                    f"{window_seconds}s is required"
+                    "client-observed request telemetry is required for frozen inference"
                 )
-            ended_at = self._watermark
-            started_at = ended_at - timedelta(seconds=window_seconds)
-            # Rolling event-time windows use (start, end] so the newest watermark
-            # event is included without double-counting the previous boundary.
-            events = [
-                event
-                for timestamp, _, event in self._events
+            events, first_observed = self._window_events_locked(
+                started_at,
+                ended_at,
+                start_tolerance_seconds=start_tolerance_seconds,
+            )
+        return self._snapshot_from_events(
+            window_seconds,
+            started_at,
+            ended_at,
+            events,
+            first_observed,
+        )
+
+    def events_between(
+        self,
+        started_at: datetime,
+        ended_at: datetime,
+        *,
+        start_tolerance_seconds: float = 0.0,
+    ) -> tuple[dict[str, Any], ...]:
+        started_at = _parse_timestamp(started_at)
+        ended_at = _parse_timestamp(ended_at)
+        if ended_at <= started_at:
+            raise ValueError("evidence interval end must be after its start")
+        with self._lock:
+            events, _ = self._window_events_locked(
+                started_at,
+                ended_at,
+                start_tolerance_seconds=start_tolerance_seconds,
+            )
+        return tuple(events)
+
+    def _window_events_locked(
+        self,
+        started_at: datetime,
+        ended_at: datetime,
+        *,
+        start_tolerance_seconds: float,
+    ) -> tuple[list[dict[str, Any]], datetime]:
+        if self._watermark is None or self._first_observed is None:
+            raise LiveWindowNotReady("no live telemetry has been observed")
+        if ended_at > self._watermark:
+            raise LiveWindowNotReady(
+                "requested live evidence extends beyond the telemetry watermark"
+            )
+        missing_at_start = (self._first_observed - started_at).total_seconds()
+        if missing_at_start > start_tolerance_seconds:
+            observed = max(0.0, (ended_at - self._first_observed).total_seconds())
+            required = (ended_at - started_at).total_seconds()
+            raise LiveWindowNotReady(
+                f"live telemetry coverage is {observed:.3f}s; {required:g}s is required"
+            )
+        events = [
+            event
+            for timestamp, _, event in self._events
+            if started_at < timestamp <= ended_at
+        ]
+        return events, self._first_observed
+
+    def _snapshot_from_events(
+        self,
+        window_seconds: int,
+        started_at: datetime,
+        ended_at: datetime,
+        events: list[dict[str, Any]],
+        first_observed: datetime,
+    ) -> dict[str, Any]:
+        with self._lock:
+            explicit_request_mode = self._explicit_request_mode
+            explicit_requests = [
+                record
+                for timestamp, _, record in self._requests
                 if started_at < timestamp <= ended_at
             ]
-
-        requests = []
-        for event in events:
-            observation = _request_observation(event)
-            if observation is None:
-                continue
-            request_started_at = _parse_timestamp(observation["started_at"])
-            if started_at < request_started_at <= ended_at:
-                requests.append(observation)
+        if explicit_request_mode:
+            requests = explicit_requests
+            request_source = "client_observed"
+        else:
+            requests = []
+            for event in events:
+                observation = _request_observation(event)
+                if observation is None:
+                    continue
+                request_started_at = _parse_timestamp(observation["started_at"])
+                if started_at < request_started_at <= ended_at:
+                    requests.append(observation)
+            request_source = "gateway_derived"
         features = request_features(requests, float(window_seconds))
         features.update(event_features(events, float(window_seconds)))
         if any(not math.isfinite(value) for value in features.values()):
@@ -371,10 +516,12 @@ class LiveTelemetryBuffer:
             "window_started_at": _iso(started_at),
             "window_ended_at": _iso(ended_at),
             "coverage_seconds": round(
-                (ended_at - (self._first_observed or ended_at)).total_seconds(), 6
+                max(0.0, (ended_at - first_observed).total_seconds()),
+                6,
             ),
             "request_count": len(requests),
             "event_count": len(events),
+            "request_observation_source": request_source,
             "features": features,
         }
 

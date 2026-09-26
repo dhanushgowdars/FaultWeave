@@ -20,6 +20,19 @@ DURATION_SECONDS = 62.0
 SEED = 20260926
 
 
+def _request_observation(item: dict) -> dict:
+    return {
+        "request_id": str(item["request_id"]),
+        "trace_id": str(item["trace_id"]) if item.get("trace_id") is not None else None,
+        "started_at": item["started_at"],
+        "latency_ms": float(item["latency_ms"]),
+        "status_code": item.get("status_code"),
+        "expected_outcome": bool(item["expected_outcome"]),
+        "transport_error": item.get("transport_error"),
+        "scenario": str(item["scenario"]),
+    }
+
+
 def _post_events(client: httpx.Client, gateway_url: str, events: list[dict]) -> int:
     accepted = 0
     endpoint = f"{gateway_url}/api/v1/intelligence/telemetry"
@@ -27,6 +40,17 @@ def _post_events(client: httpx.Client, gateway_url: str, events: list[dict]) -> 
         response = client.post(endpoint, json={"events": events[index : index + 500]})
         response.raise_for_status()
         accepted += int(response.json()["accepted"])
+    return accepted
+
+
+def _post_requests(client: httpx.Client, gateway_url: str, rows: list[dict]) -> int:
+    accepted = 0
+    endpoint = f"{gateway_url}/api/v1/intelligence/telemetry"
+    observations = [_request_observation(item) for item in rows]
+    for index in range(0, len(observations), 500):
+        response = client.post(endpoint, json={"requests": observations[index : index + 500]})
+        response.raise_for_status()
+        accepted += int(response.json()["accepted_requests"])
     return accepted
 
 
@@ -71,6 +95,7 @@ def main() -> int:
     try:
         with httpx.Client(timeout=30.0) as client:
             accepted = _post_events(client, gateway_url, eligible)
+            accepted_requests = _post_requests(client, gateway_url, results)
             readiness = client.get(f"{gateway_url}/api/v1/intelligence/ready")
             readiness.raise_for_status()
             feature_count = int(readiness.json()["feature_count"])
@@ -102,6 +127,7 @@ def main() -> int:
     print(f"Traffic requests: {len(results)}")
     print(f"Structured events collected: {len(events)}")
     print(f"Eligible events accepted: {accepted}")
+    print(f"Client request observations accepted: {accepted_requests}")
     print(
         "10s live window: "
         f"requests={feature_results[10]['request_count']} "
@@ -119,6 +145,7 @@ def main() -> int:
             "60s live classification: "
             f"{inference_results[60]['classification'].get('label')}"
         )
+    print(f"60s request observation source: {feature_results[60]['request_observation_source']}")
     print("No fault label, fault interval, expected origin, or dataset split was ingested.")
     return 0
 
