@@ -20,6 +20,12 @@ from .intelligence_inference import (
     IntelligenceInferenceRequest,
     run_intelligence_inference,
 )
+from .intelligence_live import (
+    LiveTelemetryBatch,
+    LiveTelemetryBuffer,
+    LiveWindowNotReady,
+    get_live_telemetry_buffer,
+)
 from .orchestrator import TransactionOrchestrator
 
 app = FastAPI(
@@ -92,6 +98,63 @@ async def intelligence_infer(
         },
     )
     return result
+
+
+@app.post("/api/v1/intelligence/telemetry")
+async def intelligence_telemetry(
+    payload: LiveTelemetryBatch,
+    buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
+) -> dict[str, object]:
+    summary = buffer.ingest(payload.events)
+    logger.info(
+        "intelligence_telemetry_ingested",
+        "Live telemetry batch ingested",
+        outcome=LogOutcome.SUCCESS,
+        attributes={
+            "accepted": summary["accepted"],
+            "ignored": summary["ignored"],
+            "duplicates": summary["duplicates"],
+        },
+    )
+    return {"status": "accepted", **summary}
+
+
+def _live_snapshot_or_409(
+    buffer: LiveTelemetryBuffer,
+    window_seconds: int,
+) -> dict[str, object]:
+    if window_seconds not in {10, 60}:
+        raise HTTPException(status_code=422, detail="window_seconds must be 10 or 60")
+    try:
+        return buffer.snapshot(window_seconds)
+    except LiveWindowNotReady as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/intelligence/live/features/{window_seconds}")
+async def intelligence_live_features(
+    window_seconds: int,
+    buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
+) -> dict[str, object]:
+    return _live_snapshot_or_409(buffer, window_seconds)
+
+
+@app.get("/api/v1/intelligence/live/infer/{window_seconds}")
+async def intelligence_live_infer(
+    window_seconds: int,
+    buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
+    artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
+) -> dict[str, object]:
+    snapshot = _live_snapshot_or_409(buffer, window_seconds)
+    payload = IntelligenceInferenceRequest(
+        window_seconds=window_seconds,
+        features=snapshot["features"],
+    )
+    try:
+        result = run_intelligence_inference(artifacts, payload)
+    except InferenceInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"window": snapshot, "result": result}
 
 
 @app.post("/api/v1/transactions", response_model=TransactionFlowResponse)
