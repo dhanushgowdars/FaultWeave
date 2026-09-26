@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import (
@@ -14,6 +14,11 @@ from .intelligence_artifacts import (
     ArtifactLoadError,
     FrozenIntelligenceArtifacts,
     get_frozen_artifacts,
+)
+from .intelligence_inference import (
+    InferenceInputError,
+    IntelligenceInferenceRequest,
+    run_intelligence_inference,
 )
 from .orchestrator import TransactionOrchestrator
 
@@ -66,6 +71,27 @@ async def intelligence_ready(
     artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
 ) -> dict[str, object]:
     return dict(artifacts.readiness())
+
+
+@app.post("/api/v1/intelligence/infer")
+async def intelligence_infer(
+    payload: IntelligenceInferenceRequest,
+    artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
+) -> dict[str, object]:
+    try:
+        result = run_intelligence_inference(artifacts, payload)
+    except InferenceInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info(
+        "intelligence_inference_completed",
+        "Frozen intelligence inference completed",
+        outcome=LogOutcome.SUCCESS,
+        attributes={
+            "window_seconds": payload.window_seconds,
+            "status": result["status"],
+        },
+    )
+    return result
 
 
 @app.post("/api/v1/transactions", response_model=TransactionFlowResponse)

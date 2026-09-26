@@ -59,3 +59,27 @@ curl http://localhost:18110/api/v1/intelligence/ready
 
 A successful response reports `status=ready`, a 60-second main window, a 10-second temporal
 window and nine known classes.
+
+## Phase 14C - Frozen inference execution
+
+The gateway now exposes `POST /api/v1/intelligence/infer` as the execution boundary for the
+frozen models. The request accepts only a window size and the exact frozen feature vector;
+fault IDs, scenario labels, expected origins, dataset splits and ground-truth interval fields
+are not part of the API contract.
+
+A 10-second window runs only the temporal Isolation Forest and returns `NORMAL` or
+`ABNORMAL_SIGNAL`. A 60-second window runs the frozen main Isolation Forest first. Normal
+windows stop there. Abnormal windows continue through XGBoost and then through the frozen
+class-conditional support policy, producing either one of the nine known fault classes or
+`UNKNOWN ABNORMAL PATTERN`.
+
+Feature keys must match the frozen schema exactly and every value must be finite. The gateway
+reuses the artifact objects loaded by Phase 14A; it does not fit, calibrate, select features or
+write model files during inference. The verification script posts representative offline
+feature vectors to the running Docker gateway, but protected evaluation metadata is retained
+only by the verifier and is never transmitted to the inference endpoint.
+
+Phase 14C deliberately does not claim that raw Docker logs have already become live feature
+windows. That telemetry/windowing bridge is the next gate. Keeping model execution separate
+from telemetry acquisition lets the frozen inference contract be tested before introducing
+stateful buffers and incident lifecycle logic.
