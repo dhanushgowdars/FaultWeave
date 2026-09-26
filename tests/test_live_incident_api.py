@@ -4,6 +4,7 @@ from app.main import (
     app,
     get_intelligence_artifacts,
     get_live_incident_manager,
+    get_live_intelligence_stream,
     get_live_telemetry_buffer,
 )
 from fastapi.testclient import TestClient
@@ -32,11 +33,22 @@ class StubManager:
         return INCIDENT if incident_id == INCIDENT["incident_id"] else None
 
 
+class StubStream:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def publish(self, event: str, data: dict):
+        self.events.append((event, data))
+        return None
+
+
 def test_incident_lifecycle_endpoints_expose_active_incident() -> None:
     manager = StubManager()
+    stream = StubStream()
     app.dependency_overrides[get_live_incident_manager] = lambda: manager
     app.dependency_overrides[get_live_telemetry_buffer] = lambda: object()
     app.dependency_overrides[get_intelligence_artifacts] = lambda: object()
+    app.dependency_overrides[get_live_intelligence_stream] = lambda: stream
     try:
         with TestClient(app) as client:
             evaluated = client.post("/api/v1/intelligence/live/evaluate")
@@ -48,6 +60,8 @@ def test_incident_lifecycle_endpoints_expose_active_incident() -> None:
         assert current.json() == {"active": True, "incident": INCIDENT}
         assert listing.json() == {"count": 1, "incidents": [INCIDENT]}
         assert detail.json() == INCIDENT
+        assert len(stream.events) == 1
+        assert stream.events[0][0] == "incident.opened"
     finally:
         app.dependency_overrides.clear()
 

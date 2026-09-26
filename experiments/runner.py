@@ -12,7 +12,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import httpx
@@ -46,6 +46,9 @@ class PlannedRequest:
     offset_seconds: float
     scenario: str
     amount_minor: int
+
+
+ResultObserver = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 def select_scenario(rng: random.Random, profile: TrafficProfile) -> str:
@@ -125,6 +128,7 @@ async def execute_request(
     seed: int,
     item: PlannedRequest,
     request_namespace: str | None = None,
+    result_observer: ResultObserver | None = None,
 ) -> dict[str, Any]:
     namespace = request_namespace or run_id
     request_id = f"{namespace}-request-{item.sequence:05d}"
@@ -158,7 +162,7 @@ async def execute_request(
     expected = status_code == expected_status(item.scenario)
     if item.scenario == "valid":
         expected = expected and response_body.get("status") == "COMPLETED"
-    return {
+    result = {
         "sequence": item.sequence,
         "scheduled_offset_seconds": round(item.offset_seconds, 6),
         "scenario": item.scenario,
@@ -174,6 +178,9 @@ async def execute_request(
         "transaction_id": response_body.get("transaction_id"),
         "payment_id": response_body.get("payment_id"),
     }
+    if result_observer is not None:
+        await result_observer(result)
+    return result
 
 
 async def execute_plan(
@@ -183,6 +190,7 @@ async def execute_plan(
     seed: int,
     max_concurrency: int,
     request_namespace: str | None = None,
+    result_observer: ResultObserver | None = None,
 ) -> list[dict[str, Any]]:
     semaphore = asyncio.Semaphore(max_concurrency)
     limits = httpx.Limits(
@@ -206,6 +214,7 @@ async def execute_plan(
                         seed,
                         item,
                         request_namespace,
+                        result_observer,
                     )
                 )
             )

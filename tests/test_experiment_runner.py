@@ -122,3 +122,43 @@ def test_attempt_namespace_prevents_request_id_reuse_but_preserves_run_id() -> N
     assert first["request_id"] != second["request_id"]
     assert first["trace_id"] != second["trace_id"]
     assert str(first["request_id"]).startswith("smoke-normal-low-01-a11111111-")
+
+
+def test_execute_request_notifies_live_result_observer() -> None:
+    observed: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"status": "COMPLETED"},
+            request=request,
+        )
+
+    item = PlannedRequest(
+        sequence=1,
+        offset_seconds=0,
+        scenario="valid",
+        amount_minor=1000,
+    )
+
+    async def scenario() -> dict[str, object]:
+        async def observer(result: dict) -> None:
+            observed.append(dict(result))
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await execute_request(
+                client,
+                asyncio.Semaphore(1),
+                "http://gateway",
+                "live-low",
+                20260926,
+                item,
+                "live-000001",
+                observer,
+            )
+
+    result = asyncio.run(scenario())
+
+    assert observed == [result]
+    assert observed[0]["scenario"] == "valid"
+    assert observed[0]["expected_outcome"] is True

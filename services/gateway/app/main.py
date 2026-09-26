@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import (
     CorrelationMiddleware,
@@ -29,6 +31,14 @@ from .intelligence_live import (
     LiveTelemetryBuffer,
     LiveWindowNotReady,
     get_live_telemetry_buffer,
+)
+from .intelligence_stream import (
+    STREAM_HEARTBEAT_SECONDS,
+    IntelligenceStreamMessage,
+    LiveIntelligenceStream,
+    encode_snapshot,
+    encode_sse,
+    get_live_intelligence_stream,
 )
 from .orchestrator import TransactionOrchestrator
 
@@ -173,6 +183,7 @@ async def intelligence_live_evaluate(
     buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
     artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
     manager: LiveIncidentManager = Depends(get_live_incident_manager),
+    stream: LiveIntelligenceStream = Depends(get_live_intelligence_stream),
 ) -> dict[str, object]:
     try:
         result = manager.evaluate(buffer, artifacts)
@@ -184,7 +195,69 @@ async def intelligence_live_evaluate(
         outcome=LogOutcome.SUCCESS,
         attributes={"status": result["status"]},
     )
+    stream_event = {
+        "NORMAL": "intelligence.normal",
+        "INCIDENT_OPENED": "incident.opened",
+        "INCIDENT_UPDATED": "incident.updated",
+        "INCIDENT_REFRESHED": "incident.updated",
+        "INCIDENT_RESOLVED": "incident.resolved",
+    }.get(str(result["status"]))
+    if stream_event is not None:
+        stream.publish(stream_event, result)
     return result
+
+
+@app.get("/api/v1/intelligence/stream")
+async def intelligence_stream(
+    request: Request,
+    manager: LiveIncidentManager = Depends(get_live_incident_manager),
+    stream: LiveIntelligenceStream = Depends(get_live_intelligence_stream),
+) -> StreamingResponse:
+    async def event_source():
+        token: int | None = None
+        try:
+            try:
+                token, queue = stream.subscribe()
+            except RuntimeError as exc:
+                yield encode_sse(
+                    IntelligenceStreamMessage(
+                        event_id=stream.current_event_id(),
+                        event="stream.error",
+                        data={"detail": str(exc)},
+                    )
+                )
+                return
+
+            yield encode_snapshot(
+                event_id=stream.current_event_id(),
+                active_incident=manager.current_incident(),
+                latest=stream.latest(),
+            )
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    message = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=STREAM_HEARTBEAT_SECONDS,
+                    )
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield encode_sse(message)
+        finally:
+            if token is not None:
+                stream.unsubscribe(token)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/v1/intelligence/incidents/current")
