@@ -130,7 +130,6 @@ def test_database_refusal_can_localize_postgresql() -> None:
     assert ranking[0]["candidate"] == "postgresql"
 
 
-
 def test_service_unavailable_beats_timeout_propagation_when_connection_refused() -> None:
     baseline = evidence(event("transaction", "payment"), event("payment"))
     fault = evidence(
@@ -186,6 +185,7 @@ def test_database_saturation_without_literal_db_token_prefers_postgresql() -> No
     )
     ranking = rank_origins(baseline, fault, EDGES)
     assert ranking[0]["candidate"] == "postgresql"
+
 
 def test_validator_rejects_incomplete_report() -> None:
     errors = validate_localization_report(

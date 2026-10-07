@@ -75,9 +75,7 @@ class FaultStateStore:
         )
         self.control_directory.mkdir(parents=True, exist_ok=True)
         try:
-            descriptor = os.open(
-                self.active_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
+            descriptor = os.open(self.active_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
             active = self.active()
             if active is None:

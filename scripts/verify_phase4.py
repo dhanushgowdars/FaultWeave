@@ -19,8 +19,12 @@ from experiments.faults import (  # noqa: E402
 
 def main() -> int:
     expected_core = {
-        "DATABASE_HIGH_LATENCY", "DATABASE_UNAVAILABLE", "SERVICE_UNAVAILABLE",
-        "DOWNSTREAM_TIMEOUT", "AUTHENTICATION_FAILURE_BURST", "HIGH_LOAD",
+        "DATABASE_HIGH_LATENCY",
+        "DATABASE_UNAVAILABLE",
+        "SERVICE_UNAVAILABLE",
+        "DOWNSTREAM_TIMEOUT",
+        "AUTHENTICATION_FAILURE_BURST",
+        "HIGH_LOAD",
         "CONNECTION_POOL_EXHAUSTION",
     }
     if {fault.value for fault in CORE_KNOWN_FAULTS} != expected_core:
@@ -34,12 +38,18 @@ def main() -> int:
     with TemporaryDirectory() as directory:
         store = FaultStateStore(Path(directory))
         activation = store.acquire(
-            run_id="phase-4-contract-check", fault_id="DATABASE_HIGH_LATENCY",
-            target="transaction", intensity="mild", duration_seconds=5,
+            run_id="phase-4-contract-check",
+            fault_id="DATABASE_HIGH_LATENCY",
+            target="transaction",
+            intensity="mild",
+            duration_seconds=5,
         )
         with FaultLease(
-            store, activation, lambda _: calls.append("activate"),
-            lambda _: calls.append("deactivate"), lambda: calls.append("verify_recovery"),
+            store,
+            activation,
+            lambda _: calls.append("activate"),
+            lambda _: calls.append("deactivate"),
+            lambda: calls.append("verify_recovery"),
         ):
             if store.active() != activation:
                 print("FAIL: acquired activation is not readable")

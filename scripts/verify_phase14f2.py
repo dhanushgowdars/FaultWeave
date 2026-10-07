@@ -61,20 +61,14 @@ def main() -> int:
     )
     try:
         time.sleep(1.0)
-        request_count, accepted_requests, duplicate_requests = asyncio.run(
-            run_traffic()
-        )
+        request_count, accepted_requests, duplicate_requests = asyncio.run(run_traffic())
         time.sleep(1.0)
 
         with httpx.Client(timeout=20.0) as client:
-            features_response = client.get(
-                f"{GATEWAY_URL}/api/v1/intelligence/live/features/60"
-            )
+            features_response = client.get(f"{GATEWAY_URL}/api/v1/intelligence/live/features/60")
             features_response.raise_for_status()
             snapshot = features_response.json()
-            inference_response = client.get(
-                f"{GATEWAY_URL}/api/v1/intelligence/live/infer/60"
-            )
+            inference_response = client.get(f"{GATEWAY_URL}/api/v1/intelligence/live/infer/60")
             inference_response.raise_for_status()
             result = inference_response.json()["result"]
 
@@ -87,9 +81,7 @@ def main() -> int:
         if accepted_requests <= 0:
             raise ValueError("continuous publisher reported no accepted observations")
         if result.get("status") != "NORMAL":
-            raise ValueError(
-                f"healthy continuous traffic classified as {result.get('status')}"
-            )
+            raise ValueError(f"healthy continuous traffic classified as {result.get('status')}")
 
         print("PASS: Phase 14F2 continuous client request telemetry verified")
         print(f"Traffic requests: {request_count}")

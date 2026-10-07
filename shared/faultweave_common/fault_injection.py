@@ -105,9 +105,7 @@ def should_inject_downstream_error(service: str, path: str) -> bool:
     return bucket < rate
 
 
-async def apply_sealed_unknown_downstream_disruption(
-    source: str, target: str, url: str
-) -> None:
+async def apply_sealed_unknown_downstream_disruption(source: str, target: str, url: str) -> None:
     """Apply an evaluation-only intermittent connection failure.
 
     The fault identifier is kept in protected control metadata. Observable logs contain

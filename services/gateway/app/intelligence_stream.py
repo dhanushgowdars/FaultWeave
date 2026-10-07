@@ -25,11 +25,7 @@ def encode_sse(message: IntelligenceStreamMessage) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
-    return (
-        f"id: {message.event_id}\n"
-        f"event: {message.event}\n"
-        f"data: {payload}\n\n"
-    )
+    return f"id: {message.event_id}\nevent: {message.event}\ndata: {payload}\n\n"
 
 
 def encode_snapshot(

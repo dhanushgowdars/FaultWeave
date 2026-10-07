@@ -54,37 +54,51 @@ _APPLICATION_SERVICES = (
 CORE_KNOWN_FAULTS = MappingProxyType(
     {
         FaultFamily.DATABASE_HIGH_LATENCY: FaultDefinition(
-            fault_id=FaultFamily.DATABASE_HIGH_LATENCY, tier="core", mechanism="database",
+            fault_id=FaultFamily.DATABASE_HIGH_LATENCY,
+            tier="core",
+            mechanism="database",
             allowed_targets=_APPLICATION_SERVICES,
             description="Controlled delay on database work performed by one service.",
         ),
         FaultFamily.DATABASE_UNAVAILABLE: FaultDefinition(
-            fault_id=FaultFamily.DATABASE_UNAVAILABLE, tier="core", mechanism="database",
+            fault_id=FaultFamily.DATABASE_UNAVAILABLE,
+            tier="core",
+            mechanism="database",
             allowed_targets=("postgresql",),
             description="PostgreSQL becomes unreachable during a bounded window.",
         ),
         FaultFamily.SERVICE_UNAVAILABLE: FaultDefinition(
-            fault_id=FaultFamily.SERVICE_UNAVAILABLE, tier="core", mechanism="service",
+            fault_id=FaultFamily.SERVICE_UNAVAILABLE,
+            tier="core",
+            mechanism="service",
             allowed_targets=("account", "payment", "ledger"),
             description="A selected downstream application service is unavailable.",
         ),
         FaultFamily.DOWNSTREAM_TIMEOUT: FaultDefinition(
-            fault_id=FaultFamily.DOWNSTREAM_TIMEOUT, tier="core", mechanism="downstream",
+            fault_id=FaultFamily.DOWNSTREAM_TIMEOUT,
+            tier="core",
+            mechanism="downstream",
             allowed_targets=("transaction->account", "transaction->payment", "payment->ledger"),
             description="A selected dependency call exceeds its client timeout.",
         ),
         FaultFamily.AUTHENTICATION_FAILURE_BURST: FaultDefinition(
-            fault_id=FaultFamily.AUTHENTICATION_FAILURE_BURST, tier="core", mechanism="traffic",
+            fault_id=FaultFamily.AUTHENTICATION_FAILURE_BURST,
+            tier="core",
+            mechanism="traffic",
             allowed_targets=("authentication",),
             description="A burst of rejected logins beyond the normal-error mix.",
         ),
         FaultFamily.HIGH_LOAD: FaultDefinition(
-            fault_id=FaultFamily.HIGH_LOAD, tier="core", mechanism="traffic",
+            fault_id=FaultFamily.HIGH_LOAD,
+            tier="core",
+            mechanism="traffic",
             allowed_targets=("gateway",),
             description="Request load exceeds the calibrated high-healthy envelope.",
         ),
         FaultFamily.CONNECTION_POOL_EXHAUSTION: FaultDefinition(
-            fault_id=FaultFamily.CONNECTION_POOL_EXHAUSTION, tier="core", mechanism="database",
+            fault_id=FaultFamily.CONNECTION_POOL_EXHAUSTION,
+            tier="core",
+            mechanism="database",
             allowed_targets=_APPLICATION_SERVICES,
             description="Concurrent database work consumes a service connection pool.",
         ),
@@ -95,12 +109,16 @@ CORE_KNOWN_FAULTS = MappingProxyType(
 EXTENDED_KNOWN_FAULTS = MappingProxyType(
     {
         FaultFamily.DATABASE_LOCK_CONTENTION: FaultDefinition(
-            fault_id=FaultFamily.DATABASE_LOCK_CONTENTION, tier="extended", mechanism="database",
+            fault_id=FaultFamily.DATABASE_LOCK_CONTENTION,
+            tier="extended",
+            mechanism="database",
             allowed_targets=("transaction", "payment", "ledger"),
             description="A held database lock creates waits and bounded timeouts.",
         ),
         FaultFamily.DOWNSTREAM_ERROR_BURST: FaultDefinition(
-            fault_id=FaultFamily.DOWNSTREAM_ERROR_BURST, tier="extended", mechanism="downstream",
+            fault_id=FaultFamily.DOWNSTREAM_ERROR_BURST,
+            tier="extended",
+            mechanism="downstream",
             allowed_targets=("account", "payment", "ledger"),
             description="A live downstream service returns a controlled burst of errors.",
         ),

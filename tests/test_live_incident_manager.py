@@ -43,9 +43,7 @@ class FakeBuffer:
             "request_latency_p95_ms": 100.0 if failure == 0 else 500.0,
             "event_latency_p95_ms": 80.0 if failure == 0 else 400.0,
             "event_service_authentication_failure_rate": failure,
-            "event_service_authentication_latency_p95_ms": (
-                40.0 if failure == 0 else 220.0
-            ),
+            "event_service_authentication_latency_p95_ms": (40.0 if failure == 0 else 220.0),
         }
         return {
             "window_seconds": window_seconds,
@@ -221,8 +219,5 @@ def test_same_temporal_bucket_refreshes_main_classification(monkeypatch) -> None
     refreshed = manager.evaluate(buffer, object())
 
     assert refreshed["status"] == "INCIDENT_REFRESHED"
-    assert (
-        refreshed["incident"]["classification"]["label"]
-        == "AUTHENTICATION_FAILURE_BURST"
-    )
+    assert refreshed["incident"]["classification"]["label"] == "AUTHENTICATION_FAILURE_BURST"
     assert refreshed["incident"]["temporal"]["samples_last_60s"] == 1

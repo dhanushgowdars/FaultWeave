@@ -9,12 +9,16 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+node_modules/
+*.tsbuildinfo
 data/raw/*.jsonl
 !data/raw/.gitkeep
 data/experiments/**
 !data/experiments/.gitkeep
 data/fault-control/**
 !data/fault-control/.gitkeep
+data/live-demo/**
+!data/live-demo/.gitkeep
 data/experiments/sealed-unknown-evaluation/**
 data/datasets/**
 !data/datasets/.gitkeep

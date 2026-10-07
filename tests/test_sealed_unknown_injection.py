@@ -70,9 +70,7 @@ def test_latency_jitter_has_multiple_bands_and_excludes_health(monkeypatch) -> N
     tokens = set_correlation_context("unknown-run", "health-request", "trace")
     try:
         asyncio.run(
-            fault_injection.apply_sealed_unknown_latency_jitter(
-                "transaction", "/health/ready"
-            )
+            fault_injection.apply_sealed_unknown_latency_jitter("transaction", "/health/ready")
         )
     finally:
         reset_correlation_context(tokens)
@@ -94,6 +92,4 @@ def test_unknown_injectors_require_evaluation_scope(monkeypatch) -> None:
         pytest.fail("unsealed activation must not inject")
 
     monkeypatch.setattr(fault_injection.asyncio, "sleep", fail_sleep)
-    asyncio.run(
-        fault_injection.apply_sealed_unknown_latency_jitter("transaction", "/internal")
-    )
+    asyncio.run(fault_injection.apply_sealed_unknown_latency_jitter("transaction", "/internal"))

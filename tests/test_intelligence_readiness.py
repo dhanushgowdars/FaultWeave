@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from app.intelligence_artifacts import ArtifactLoadError
 from app.main import app, get_intelligence_artifacts
+from fastapi.testclient import TestClient
 
 
 class ReadyArtifacts:

@@ -10,8 +10,4 @@ OFFICIAL_NORMAL_SEEDS: dict[str, tuple[int, ...]] = {
 
 
 def official_seed_pairs() -> list[tuple[str, int]]:
-    return [
-        (profile, seed)
-        for profile, seeds in OFFICIAL_NORMAL_SEEDS.items()
-        for seed in seeds
-    ]
+    return [(profile, seed) for profile, seeds in OFFICIAL_NORMAL_SEEDS.items() for seed in seeds]

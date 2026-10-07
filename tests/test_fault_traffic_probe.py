@@ -7,9 +7,7 @@ from experiments.faults import traffic_probe
 
 def test_high_load_rates_are_strictly_above_calibrated_envelope(tmp_path, monkeypatch) -> None:
     calibration = tmp_path / "healthy_envelope.json"
-    calibration.write_text(
-        json.dumps({"selected_high_healthy_rps": 12.0}), encoding="utf-8"
-    )
+    calibration.write_text(json.dumps({"selected_high_healthy_rps": 12.0}), encoding="utf-8")
     monkeypatch.setattr(traffic_probe, "CALIBRATION_PATH", calibration)
     assert traffic_probe.fault_rate("HIGH_LOAD", "mild") == 18.0
     assert traffic_probe.fault_rate("HIGH_LOAD", "medium") == 24.0

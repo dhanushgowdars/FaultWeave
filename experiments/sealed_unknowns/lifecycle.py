@@ -74,9 +74,7 @@ class SealedUnknownStateStore:
         )
         self.control_directory.mkdir(parents=True, exist_ok=True)
         try:
-            descriptor = os.open(
-                self.active_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
+            descriptor = os.open(self.active_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
             raise RuntimeError("another controlled fault already owns the global lease") from exc
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:

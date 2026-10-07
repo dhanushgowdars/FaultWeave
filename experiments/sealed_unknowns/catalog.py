@@ -9,9 +9,7 @@ from experiments.faults.catalog import SEALED_UNKNOWN_FAULT_IDS, FaultIntensity
 
 
 class SealedUnknownFamily(StrEnum):
-    INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE = (
-        "INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE"
-    )
+    INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE = "INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE"
     LATENCY_JITTER_PARTIAL_DEGRADATION = "LATENCY_JITTER_PARTIAL_DEGRADATION"
 
 
@@ -26,28 +24,24 @@ class SealedUnknownDefinition(BaseModel):
 
 SEALED_UNKNOWN_SCENARIOS = MappingProxyType(
     {
-        SealedUnknownFamily.INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE:
-            SealedUnknownDefinition(
-                fault_id=SealedUnknownFamily.INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE,
-                allowed_targets=(
-                    "gateway->authentication",
-                    "gateway->account",
-                    "gateway->transaction",
-                    "transaction->account",
-                    "transaction->payment",
-                    "transaction->ledger",
-                    "payment->ledger",
-                ),
-                description="Intermittent connection loss on one dependency edge.",
+        SealedUnknownFamily.INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE: SealedUnknownDefinition(
+            fault_id=SealedUnknownFamily.INTERMITTENT_DOWNSTREAM_CONNECTION_FAILURE,
+            allowed_targets=(
+                "gateway->authentication",
+                "gateway->account",
+                "gateway->transaction",
+                "transaction->account",
+                "transaction->payment",
+                "transaction->ledger",
+                "payment->ledger",
             ),
-        SealedUnknownFamily.LATENCY_JITTER_PARTIAL_DEGRADATION:
-            SealedUnknownDefinition(
-                fault_id=SealedUnknownFamily.LATENCY_JITTER_PARTIAL_DEGRADATION,
-                allowed_targets=(
-                    "authentication", "account", "transaction", "payment", "ledger"
-                ),
-                description="Multi-modal request latency affecting only part of the traffic.",
-            ),
+            description="Intermittent connection loss on one dependency edge.",
+        ),
+        SealedUnknownFamily.LATENCY_JITTER_PARTIAL_DEGRADATION: SealedUnknownDefinition(
+            fault_id=SealedUnknownFamily.LATENCY_JITTER_PARTIAL_DEGRADATION,
+            allowed_targets=("authentication", "account", "transaction", "payment", "ledger"),
+            description="Multi-modal request latency affecting only part of the traffic.",
+        ),
     }
 )
 

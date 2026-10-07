@@ -76,13 +76,9 @@ def main() -> int:
         f"requests={report['request_interval_assignment_rate']:.2%}, "
         f"events={report['event_interval_assignment_rate']:.2%}"
     )
+    print(f"Measurable fault signals: {report['fault_signal_runs']}/{report['fault_run_count']}")
     print(
-        f"Measurable fault signals: {report['fault_signal_runs']}/"
-        f"{report['fault_run_count']}"
-    )
-    print(
-        f"Healthy recovery intervals: {report['recovery_healthy_runs']}/"
-        f"{report['fault_run_count']}"
+        f"Healthy recovery intervals: {report['recovery_healthy_runs']}/{report['fault_run_count']}"
     )
     print(f"Known fault classes: {len(report['known_fault_counts'])}")
     print(f"Sealed unknown families: {len(report['sealed_unknown_counts'])}")

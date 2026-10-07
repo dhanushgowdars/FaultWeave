@@ -92,6 +92,28 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+## Run the operational dashboard
+
+With the gateway and frozen intelligence artifacts available:
+
+```bash
+python scripts/live_demo_control.py
+```
+
+In a second terminal:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173>. The frontend connects to the gateway on port `18110` through
+the Vite development proxy and to the localhost-only controlled-fault service on port `18116`.
+It shows real readiness, live inference, SSE lifecycle events, incident evidence, recent
+structured telemetry and bounded demonstration controls. See `docs/phase-15.md` for the UI,
+safety and evidence contracts.
+
 ## Repository map
 
 ```text

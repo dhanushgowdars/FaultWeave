@@ -14,9 +14,7 @@ POST_RETRIES = 3
 def request_observation(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "request_id": str(result["request_id"]),
-        "trace_id": (
-            str(result["trace_id"]) if result.get("trace_id") is not None else None
-        ),
+        "trace_id": (str(result["trace_id"]) if result.get("trace_id") is not None else None),
         "started_at": str(result["started_at"]),
         "latency_ms": float(result["latency_ms"]),
         "status_code": result.get("status_code"),
@@ -38,21 +36,17 @@ class LiveRequestTelemetryPublisher:
     ) -> None:
         if batch_size <= 0 or flush_interval <= 0 or queue_size <= 0:
             raise ValueError("publisher limits must be positive")
-        self.endpoint = (
-            f"{gateway_url.rstrip('/')}/api/v1/intelligence/telemetry"
-        )
+        self.endpoint = f"{gateway_url.rstrip('/')}/api/v1/intelligence/telemetry"
         self.batch_size = batch_size
         self.flush_interval = flush_interval
         self._transport = transport
-        self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(
-            maxsize=queue_size
-        )
+        self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=queue_size)
         self._task: asyncio.Task[None] | None = None
         self.accepted_total = 0
         self.duplicate_total = 0
         self.batches_total = 0
 
-    async def __aenter__(self) -> "LiveRequestTelemetryPublisher":
+    async def __aenter__(self) -> LiveRequestTelemetryPublisher:
         if self._task is not None:
             raise RuntimeError("live request telemetry publisher is already running")
         self._task = asyncio.create_task(self._run())

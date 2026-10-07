@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import (
@@ -17,14 +17,14 @@ from .intelligence_artifacts import (
     FrozenIntelligenceArtifacts,
     get_frozen_artifacts,
 )
+from .intelligence_incidents import (
+    LiveIncidentManager,
+    get_live_incident_manager,
+)
 from .intelligence_inference import (
     InferenceInputError,
     IntelligenceInferenceRequest,
     run_intelligence_inference,
-)
-from .intelligence_incidents import (
-    LiveIncidentManager,
-    get_live_incident_manager,
 )
 from .intelligence_live import (
     LiveTelemetryBatch,
@@ -143,9 +143,7 @@ def _live_snapshot_or_409(
     if window_seconds not in {10, 60}:
         raise HTTPException(status_code=422, detail="window_seconds must be 10 or 60")
     try:
-        return buffer.snapshot(
-            window_seconds, require_client_requests=require_client_requests
-        )
+        return buffer.snapshot(window_seconds, require_client_requests=require_client_requests)
     except LiveWindowNotReady as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -164,9 +162,7 @@ async def intelligence_live_infer(
     buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
     artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
 ) -> dict[str, object]:
-    snapshot = _live_snapshot_or_409(
-        buffer, window_seconds, require_client_requests=True
-    )
+    snapshot = _live_snapshot_or_409(buffer, window_seconds, require_client_requests=True)
     payload = IntelligenceInferenceRequest(
         window_seconds=window_seconds,
         features=snapshot["features"],
@@ -176,6 +172,34 @@ async def intelligence_live_infer(
     except InferenceInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"window": snapshot, "result": result}
+
+
+@app.get("/api/v1/intelligence/live/telemetry/recent")
+async def intelligence_recent_telemetry(
+    limit: int = Query(default=100, ge=1, le=500),
+    service: str | None = Query(default=None, min_length=1, max_length=50),
+    level: str | None = Query(default=None, min_length=1, max_length=20),
+    request_id_filter: str | None = Query(
+        default=None,
+        alias="request_id",
+        min_length=1,
+        max_length=100,
+    ),
+    trace_id_filter: str | None = Query(
+        default=None,
+        alias="trace_id",
+        min_length=1,
+        max_length=100,
+    ),
+    buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
+) -> dict[str, object]:
+    return buffer.recent_evidence(
+        limit=limit,
+        service=service,
+        level=level,
+        request_id=request_id_filter,
+        trace_id=trace_id_filter,
+    )
 
 
 @app.post("/api/v1/intelligence/live/evaluate")

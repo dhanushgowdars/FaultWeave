@@ -96,11 +96,7 @@ def execute_final_run(run: FinalRunSpec, plan_hash: str, gateway_url: str) -> Fi
             if run.profile in {"high_healthy", "short_burst"}
             else None
         )
-        rps = (
-            calibrated_limit
-            if run.profile == "high_healthy"
-            else profile.target_rps
-        )
+        rps = calibrated_limit if run.profile == "high_healthy" else profile.target_rps
         maximum_rps = calibrated_limit if run.profile == "short_burst" else None
         planned = build_plan(
             profile,
@@ -130,9 +126,7 @@ def execute_final_run(run: FinalRunSpec, plan_hash: str, gateway_url: str) -> Fi
                         if maximum_rps is not None
                         else rps * segment.multiplier,
                     }
-                    for segment in resolve_rate_segments(
-                        profile, run.intervals[0].duration_seconds
-                    )
+                    for segment in resolve_rate_segments(profile, run.intervals[0].duration_seconds)
                 ],
             }
         )

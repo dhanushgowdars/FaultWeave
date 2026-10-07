@@ -175,8 +175,10 @@ def run_traffic_probe(
             raise RuntimeError("high load produced no observable overload behaviour")
     if fault_id == FaultFamily.CONNECTION_POOL_EXHAUSTION:
         abnormal = any(
-            result["transport_error"] or not result["status_code"]
-            or result["status_code"] >= 500 or result["latency_ms"] >= 1000
+            result["transport_error"]
+            or not result["status_code"]
+            or result["status_code"] >= 500
+            or result["latency_ms"] >= 1000
             for result in results
         )
         if not abnormal:

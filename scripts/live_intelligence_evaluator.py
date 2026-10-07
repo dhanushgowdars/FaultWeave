@@ -23,9 +23,7 @@ async def evaluate_forever(args: argparse.Namespace) -> int:
                     if status != previous_status or args.verbose:
                         incident = payload.get("incident")
                         incident_id = (
-                            incident.get("incident_id")
-                            if isinstance(incident, dict)
-                            else None
+                            incident.get("incident_id") if isinstance(incident, dict) else None
                         )
                         print(
                             f"live-evaluator status={status}"

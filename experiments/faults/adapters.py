@@ -15,8 +15,11 @@ _SERVICE_NAMES = {
 
 def compose(*arguments: str) -> None:
     result = subprocess.run(
-        ["docker", "compose", *arguments], cwd=PROJECT_DIRECTORY,
-        capture_output=True, check=False, text=True,
+        ["docker", "compose", *arguments],
+        cwd=PROJECT_DIRECTORY,
+        capture_output=True,
+        check=False,
+        text=True,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
@@ -36,11 +39,19 @@ def deactivate_infrastructure_fault(activation: FaultActivation) -> None:
         compose("up", "-d", "--wait", _SERVICE_NAMES[activation.target])
 
 
-def verify_stack_recovery() -> None:
+def verify_stack_health() -> None:
+    """Restore and wait for infrastructure without issuing a business transaction."""
     compose("up", "-d", "--wait")
+
+
+def verify_stack_recovery() -> None:
+    verify_stack_health()
     result = subprocess.run(
-        ["python", "scripts/smoke_test.py"], cwd=PROJECT_DIRECTORY,
-        capture_output=True, check=False, text=True,
+        ["python", "scripts/smoke_test.py"],
+        cwd=PROJECT_DIRECTORY,
+        capture_output=True,
+        check=False,
+        text=True,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())

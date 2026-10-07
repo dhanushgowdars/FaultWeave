@@ -83,3 +83,46 @@ def test_telemetry_endpoint_ignores_intelligence_feedback_events() -> None:
         assert response.json()["ignored"] == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_recent_telemetry_endpoint_returns_bounded_real_evidence() -> None:
+    buffer = LiveTelemetryBuffer()
+    app.dependency_overrides[get_live_telemetry_buffer] = lambda: buffer
+    started = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
+    try:
+        with TestClient(app) as client:
+            client.post(
+                "/api/v1/intelligence/telemetry",
+                json={
+                    "events": [
+                        _event(started),
+                        _event(started + timedelta(seconds=1)),
+                    ]
+                },
+            )
+            response = client.get(
+                "/api/v1/intelligence/live/telemetry/recent",
+                params={"limit": 1, "service": "gateway"},
+            )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["count"] == 1
+        assert payload["buffered_events"] == 2
+        assert payload["events"][0]["service"] == "gateway"
+        assert payload["events"][0]["timestamp"] == payload["watermark"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_recent_telemetry_endpoint_rejects_unbounded_limit() -> None:
+    buffer = LiveTelemetryBuffer()
+    app.dependency_overrides[get_live_telemetry_buffer] = lambda: buffer
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/api/v1/intelligence/live/telemetry/recent",
+                params={"limit": 501},
+            )
+        assert response.status_code == 422
+    finally:
+        app.dependency_overrides.clear()

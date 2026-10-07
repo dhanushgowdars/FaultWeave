@@ -1,11 +1,11 @@
 from datetime import UTC, datetime
 
+from datasets.final_features import FEATURE_NAMES
 from datasets.incident_impact import (
     detection_delay_seconds,
     severity_band,
     severity_from_windows,
 )
-from datasets.final_features import FEATURE_NAMES
 
 
 def row(*, ended_at: str = "2026-01-01T00:00:10Z", **updates: float) -> dict:

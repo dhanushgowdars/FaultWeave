@@ -58,9 +58,7 @@ def test_manifest_round_trip_and_artifact_checksum(tmp_path) -> None:
             events_sha256=checksum,
         ),
     )
-    restored = ExperimentManifest.model_validate_json(
-        json.dumps(manifest.model_dump(mode="json"))
-    )
+    restored = ExperimentManifest.model_validate_json(json.dumps(manifest.model_dump(mode="json")))
     assert restored.run_type == "normal"
     assert restored.fault_injection_enabled is False
     assert restored.artifacts.events_sha256 == checksum

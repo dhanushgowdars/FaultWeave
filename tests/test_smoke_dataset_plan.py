@@ -26,9 +26,7 @@ def test_fault_runs_have_contiguous_three_part_intervals() -> None:
     for run in plan.runs:
         if run.scenario_type != "known_fault":
             continue
-        assert [interval.name for interval in run.intervals] == [
-            "baseline", "fault", "recovery"
-        ]
+        assert [interval.name for interval in run.intervals] == ["baseline", "fault", "recovery"]
         assert run.intervals[0].offset_seconds == 0
         assert run.intervals[0].end_seconds == run.intervals[1].offset_seconds
         assert run.intervals[1].end_seconds == run.intervals[2].offset_seconds
@@ -42,9 +40,7 @@ def test_sealed_unknown_identifiers_are_absent() -> None:
 
 def test_pool_exhaustion_uses_full_pool_pressure() -> None:
     plan = build_smoke_plan(datetime(2026, 1, 1, tzinfo=UTC))
-    pool_runs = [
-        run for run in plan.runs if run.fault_id is FaultFamily.CONNECTION_POOL_EXHAUSTION
-    ]
+    pool_runs = [run for run in plan.runs if run.fault_id is FaultFamily.CONNECTION_POOL_EXHAUSTION]
     assert len(pool_runs) == 5
     assert {run.intensity for run in pool_runs} == {FaultIntensity.HIGH}
 

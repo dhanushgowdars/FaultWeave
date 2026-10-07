@@ -36,9 +36,12 @@ def request_once(gateway_url: str, run_id: str, sequence: int) -> dict:
                 "X-Trace-ID": str(uuid4()),
             },
             json={
-                "username": "demo", "password": "faultweave-demo",
-                "account_number": "FW-DEMO-001", "amount_minor": 1000,
-                "currency": "INR", "recipient": f"fault-probe-{sequence:04d}",
+                "username": "demo",
+                "password": "faultweave-demo",
+                "account_number": "FW-DEMO-001",
+                "amount_minor": 1000,
+                "currency": "INR",
+                "recipient": f"fault-probe-{sequence:04d}",
             },
             timeout=15,
         )
@@ -54,7 +57,10 @@ def request_once(gateway_url: str, run_id: str, sequence: int) -> dict:
 
 
 def run_probe(
-    fault_id: str, target: str, intensity: str, duration_seconds: float,
+    fault_id: str,
+    target: str,
+    intensity: str,
+    duration_seconds: float,
     gateway_url: str,
 ) -> Path:
     definition = get_known_fault(fault_id)
@@ -63,13 +69,19 @@ def run_probe(
     run_id = f"controlled-{uuid4().hex[:12]}"
     store = FaultStateStore(CONTROL_DIRECTORY)
     activation = store.acquire(
-        run_id=run_id, fault_id=fault_id, target=target,
-        intensity=intensity, duration_seconds=duration_seconds,
+        run_id=run_id,
+        fault_id=fault_id,
+        target=target,
+        intensity=intensity,
+        duration_seconds=duration_seconds,
     )
     results: list[dict] = []
     with FaultLease(
-        store, activation, activate_infrastructure_fault,
-        deactivate_infrastructure_fault, verify_stack_recovery,
+        store,
+        activation,
+        activate_infrastructure_fault,
+        deactivate_infrastructure_fault,
+        verify_stack_recovery,
     ):
         deadline = time.monotonic() + duration_seconds
         sequence = 1
@@ -90,9 +102,12 @@ def run_probe(
     write_json(
         output,
         {
-            "schema_version": "1.0", "run_id": run_id, "run_type": "known_fault_probe",
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "run_type": "known_fault_probe",
             "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "fault": activation.model_dump(mode="json"), "results": results,
+            "fault": activation.model_dump(mode="json"),
+            "results": results,
             "recovery_verified": True,
         },
     )

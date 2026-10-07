@@ -194,16 +194,12 @@ def _causal_rerank(
             database_mode = True
             boost("postgresql", 3.00, "database-wide saturation signature")
 
-    service_latency_count = sum(
-        ev(service, "latency_signal") > 0.50 for service in SERVICE_NAMES
-    )
+    service_latency_count = sum(ev(service, "latency_signal") > 0.50 for service in SERVICE_NAMES)
     edge_latency_count = sum(
-        ev(f"{source}->{target}", "edge_latency_signal") > 0.50
-        for source, target in edges
+        ev(f"{source}->{target}", "edge_latency_signal") > 0.50 for source, target in edges
     )
     failing_edge_count = sum(
-        ev(f"{source}->{target}", "edge_failure_delta") > 0.10
-        for source, target in edges
+        ev(f"{source}->{target}", "edge_failure_delta") > 0.10 for source, target in edges
     )
     broad_load_mode = (
         service_latency_count >= 5
@@ -233,9 +229,7 @@ def _causal_rerank(
                 default=0.0,
             )
             if incoming_strength >= 0.50:
-                unavailable_services.append(
-                    (depths.get(service, 0), incoming_strength, service)
-                )
+                unavailable_services.append((depths.get(service, 0), incoming_strength, service))
     if unavailable_services and not database_mode and not broad_load_mode:
         service = max(unavailable_services)[-1]
         boost(service, 2.00, "callee unavailable while caller observes connection failure")
@@ -265,12 +259,7 @@ def _causal_rerank(
                     candidate,
                 )
             )
-    if (
-        timeout_edges
-        and not database_mode
-        and not broad_load_mode
-        and not unavailable_services
-    ):
+    if timeout_edges and not database_mode and not broad_load_mode and not unavailable_services:
         candidate = max(timeout_edges)[-1]
         boost(candidate, 1.30, "deepest dependency with explicit timeout evidence")
 
@@ -295,8 +284,7 @@ def _causal_rerank(
                 (
                     depths.get(service, 0),
                     max(ev(service, "pool_error_rate"), ev(service, "lock_error_rate")),
-                    ev(service, "inbound_failure_delta")
-                    * ev(service, "emitted_failure_delta"),
+                    ev(service, "inbound_failure_delta") * ev(service, "emitted_failure_delta"),
                     service,
                 )
             )
@@ -308,9 +296,7 @@ def _causal_rerank(
         and not timeout_edges
     ):
         service = max(resource_services)[-1]
-        explicit_resource = max(
-            ev(service, "pool_error_rate"), ev(service, "lock_error_rate")
-        )
+        explicit_resource = max(ev(service, "pool_error_rate"), ev(service, "lock_error_rate"))
         if explicit_resource >= 0.05:
             boost(service, 1.75, "deepest service with explicit pool/lock evidence")
         else:
@@ -370,20 +356,12 @@ def rank_live_origins(
         current_inbound = tuple(
             item for item in current.events if item.get("downstream_service") == service
         )
-        emitted_delta = _increase(
-            _rate(current_emitted, _failure), _rate(base_emitted, _failure)
-        )
-        inbound_delta = _increase(
-            _rate(current_inbound, _failure), _rate(base_inbound, _failure)
-        )
-        latency = _latency_signal(
-            _latency_p95(current_emitted), _latency_p95(base_emitted)
-        )
+        emitted_delta = _increase(_rate(current_emitted, _failure), _rate(base_emitted, _failure))
+        inbound_delta = _increase(_rate(current_inbound, _failure), _rate(base_inbound, _failure))
+        latency = _latency_signal(_latency_p95(current_emitted), _latency_p95(base_emitted))
         pool_rate = _token_rate(current_emitted, POOL_TOKENS)
         lock_rate = _token_rate(current_emitted, LOCK_TOKENS)
-        offset = _first_failure_offset(
-            (*current_emitted, *current_inbound), current.started_at
-        )
+        offset = _first_failure_offset((*current_emitted, *current_inbound), current.started_at)
         if offset is not None:
             first_offsets.append(offset)
         score = 0.45 * emitted_delta + 0.35 * inbound_delta + 0.20 * latency
@@ -395,9 +373,7 @@ def rank_live_origins(
             "lock_error_rate": lock_rate,
         }
         reasons = [f"{name}={value:.6f}" for name, value in evidence.items()]
-        rankings.append(
-            _candidate_record(service, "service", score, reasons, offset, evidence)
-        )
+        rankings.append(_candidate_record(service, "service", score, reasons, offset, evidence))
 
     for source, target in edges:
         base_edge = tuple(
@@ -410,9 +386,7 @@ def rank_live_origins(
             for item in current.events
             if item.get("service") == source and item.get("downstream_service") == target
         )
-        failure_delta = _increase(
-            _rate(current_edge, _failure), _rate(base_edge, _failure)
-        )
+        failure_delta = _increase(_rate(current_edge, _failure), _rate(base_edge, _failure))
         latency = _latency_signal(_latency_p95(current_edge), _latency_p95(base_edge))
         timeout_rate = _token_rate(current_edge, TIMEOUT_TOKENS)
         connection_rate = _token_rate(current_edge, CONNECTION_TOKENS)
@@ -469,15 +443,9 @@ def rank_live_origins(
             for token in ("database connection refused", "postgres connection refused")
         ),
     )
-    database_refused_delta = _increase(
-        database_refused_rate, baseline_database_refused_rate
-    )
+    database_refused_delta = _increase(database_refused_rate, baseline_database_refused_rate)
     affected_services = len(
-        {
-            item.get("service")
-            for item in current.events
-            if _failure(item) and item.get("service")
-        }
+        {item.get("service") for item in current.events if _failure(item) and item.get("service")}
     )
     database_score = 0.75 * max(database_delta, database_refused_delta) + 0.25 * min(
         1.0, affected_services / 3
@@ -504,8 +472,7 @@ def rank_live_origins(
             offset = item["first_failure_seconds"]
             if offset is not None:
                 item["score"] = round(
-                    item["score"]
-                    + 0.05 * math.exp(-max(0.0, offset - earliest) / 5.0),
+                    item["score"] + 0.05 * math.exp(-max(0.0, offset - earliest) / 5.0),
                     6,
                 )
                 item["reasons"].append("first-abnormal timing bonus applied")

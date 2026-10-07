@@ -35,9 +35,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    class_counts = Counter(
-        run.fault_id.value for run in plan.runs if run.fault_id is not None
-    )
+    class_counts = Counter(run.fault_id.value for run in plan.runs if run.fault_id is not None)
     print("PASS: Phase 5A smoke-plan contract verified")
     print("Total runs: 55")
     print("Normal runs: 10")

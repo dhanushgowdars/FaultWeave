@@ -53,8 +53,7 @@ def main() -> int:
     print("PASS: Phase 13 incident impact report built")
     print(f"10s temporal Isolation Forest known-test F1: {known_test['f1']:.6f}")
     print(
-        "10s temporal normal false-positive rate: "
-        f"{known_test['normal_false_positive_rate']:.6f}"
+        f"10s temporal normal false-positive rate: {known_test['normal_false_positive_rate']:.6f}"
     )
     print(f"Overall detection rate: {overall['detection_rate']:.6f}")
     print(f"Known-fault detection rate: {known['detection_rate']:.6f}")

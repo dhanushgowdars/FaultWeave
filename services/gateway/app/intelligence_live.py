@@ -42,7 +42,7 @@ class LiveTelemetryBatch(BaseModel):
     requests: list[LiveRequestObservation] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
-    def require_observations(self) -> "LiveTelemetryBatch":
+    def require_observations(self) -> LiveTelemetryBatch:
         if not self.events and not self.requests:
             raise ValueError("telemetry batch must contain events or client request observations")
         return self
@@ -380,9 +380,7 @@ class LiveTelemetryBuffer:
             self._requests.popleft()
             requests_changed = True
         if requests_changed:
-            self._seen_requests = {
-                fingerprint for _, fingerprint, _ in self._requests
-            }
+            self._seen_requests = {fingerprint for _, fingerprint, _ in self._requests}
         self._first_observed = self._events[0][0] if self._events else None
 
     def snapshot(
@@ -452,6 +450,50 @@ class LiveTelemetryBuffer:
             )
         return tuple(events)
 
+    def recent_evidence(
+        self,
+        *,
+        limit: int = 100,
+        service: str | None = None,
+        level: str | None = None,
+        request_id: str | None = None,
+        trace_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a bounded, read-only view of recent observable telemetry.
+
+        This method deliberately exposes only events already accepted into the live
+        intelligence buffer. It does not read arbitrary container files and it never
+        includes model artifacts, fault-control state or protected dataset labels.
+        """
+        if not 1 <= limit <= 500:
+            raise ValueError("recent evidence limit must be between 1 and 500")
+        normalized_service = service.strip().lower() if service else None
+        normalized_level = level.strip().upper() if level else None
+        with self._lock:
+            selected: list[dict[str, Any]] = []
+            for _, _, event in reversed(self._events):
+                if (
+                    normalized_service
+                    and str(event.get("service", "")).lower() != normalized_service
+                ):
+                    continue
+                if normalized_level and str(event.get("level", "")).upper() != normalized_level:
+                    continue
+                if request_id and event.get("request_id") != request_id:
+                    continue
+                if trace_id and event.get("trace_id") != trace_id:
+                    continue
+                selected.append(dict(event))
+                if len(selected) >= limit:
+                    break
+            return {
+                "count": len(selected),
+                "buffered_events": len(self._events),
+                "buffered_requests": len(self._requests),
+                "watermark": _iso(self._watermark) if self._watermark else None,
+                "events": selected,
+            }
+
     def _window_events_locked(
         self,
         started_at: datetime,
@@ -473,9 +515,7 @@ class LiveTelemetryBuffer:
                 f"live telemetry coverage is {observed:.3f}s; {required:g}s is required"
             )
         events = [
-            event
-            for timestamp, _, event in self._events
-            if started_at < timestamp <= ended_at
+            event for timestamp, _, event in self._events if started_at < timestamp <= ended_at
         ]
         return events, self._first_observed
 

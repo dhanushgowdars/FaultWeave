@@ -52,9 +52,7 @@ def verify_run(
 ) -> tuple[SmokeRunManifest | None, list[str]]:
     errors: list[str] = []
     try:
-        manifest = SmokeRunManifest.model_validate_json(
-            manifest_path.read_text(encoding="utf-8")
-        )
+        manifest = SmokeRunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         return None, [f"invalid manifest {manifest_path.name}: {exc}"]
     specs = {run.run_id: run for run in plan.runs}

@@ -102,9 +102,7 @@ def main() -> int:
             feature_results = {}
             inference_results = {}
             for seconds in (10, 60):
-                features = client.get(
-                    f"{gateway_url}/api/v1/intelligence/live/features/{seconds}"
-                )
+                features = client.get(f"{gateway_url}/api/v1/intelligence/live/features/{seconds}")
                 features.raise_for_status()
                 feature_results[seconds] = features.json()
                 if len(feature_results[seconds]["features"]) != feature_count:
@@ -113,9 +111,7 @@ def main() -> int:
                         file=sys.stderr,
                     )
                     return 1
-                inference = client.get(
-                    f"{gateway_url}/api/v1/intelligence/live/infer/{seconds}"
-                )
+                inference = client.get(f"{gateway_url}/api/v1/intelligence/live/infer/{seconds}")
                 inference.raise_for_status()
                 inference_results[seconds] = inference.json()["result"]
     except httpx.HTTPError as exc:
@@ -141,10 +137,7 @@ def main() -> int:
         f"status={inference_results[60]['status']}"
     )
     if inference_results[60].get("classification"):
-        print(
-            "60s live classification: "
-            f"{inference_results[60]['classification'].get('label')}"
-        )
+        print(f"60s live classification: {inference_results[60]['classification'].get('label')}")
     print(f"60s request observation source: {feature_results[60]['request_observation_source']}")
     print("No fault label, fault interval, expected origin, or dataset split was ingested.")
     return 0

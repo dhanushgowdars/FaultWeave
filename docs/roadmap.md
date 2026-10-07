@@ -132,3 +132,15 @@ isolation before later model phases can begin.
   run/request/trace IDs, first-abnormal timing, and propagation evidence.
 
 Do not add Kafka, Kubernetes, an LLM chatbot, real banking, or automatic remediation.
+
+## Phase 15 dashboard contract
+
+Phase 15 provides a professional React dashboard over the frozen Phase 14 intelligence API.
+It consumes readiness, live 10/60-second inference, the semantic SSE stream, current and
+historical incidents, probable-origin rankings, deterministic severity and bounded recent
+telemetry. The dashboard presents plain-language operational decisions before expandable
+technical evidence and identifies unknown abnormal patterns as a first-class outcome.
+
+The browser does not retrain models, change thresholds or directly access Docker. Fault
+controls remain host-controlled by the localhost-only Phase 15B controller, which enforces
+exclusive activation, bounded execution, explicit stop, cleanup and recovery verification.

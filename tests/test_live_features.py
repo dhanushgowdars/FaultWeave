@@ -8,9 +8,10 @@ from app.intelligence_live import (
     event_features,
     request_features,
 )
+from faultweave_common.logging import StructuredLogEvent
+
 from datasets.final_features import _event_features as offline_event_features
 from datasets.final_features import _request_features as offline_request_features
-from faultweave_common.logging import StructuredLogEvent
 
 
 def _event(

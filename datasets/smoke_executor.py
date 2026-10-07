@@ -315,8 +315,7 @@ def execute_run(run: RunSpec, plan_hash: str, gateway_url: str) -> SmokeRunManif
     events_path = run_root / "events.jsonl"
     ground_truth_path = DATASET_ROOT / "ground_truth" / f"{run.run_id}.json"
     observable_requests = [
-        {key: value for key, value in item.items() if key != "interval"}
-        for item in all_requests
+        {key: value for key, value in item.items() if key != "interval"} for item in all_requests
     ]
     write_jsonl(requests_path, observable_requests)
     write_jsonl(events_path, events)

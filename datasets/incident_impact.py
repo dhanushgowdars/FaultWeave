@@ -67,9 +67,7 @@ def _failure_impact(fault_rows: list[dict[str, Any]]) -> float:
     return _clip01(_mean(values))
 
 
-def _latency_impact(
-    baseline_rows: list[dict[str, Any]], fault_rows: list[dict[str, Any]]
-) -> float:
+def _latency_impact(baseline_rows: list[dict[str, Any]], fault_rows: list[dict[str, Any]]) -> float:
     base_request = _mean([_feature(row, "request_latency_p95_ms") for row in baseline_rows])
     fault_request = _mean([_feature(row, "request_latency_p95_ms") for row in fault_rows])
     base_event = _mean([_feature(row, "event_latency_p95_ms") for row in baseline_rows])
@@ -270,12 +268,15 @@ def build_incident_impact_report(
         "temporal_detector": {
             "window_seconds": 10,
             "threshold": threshold,
-            "training_policy": "healthy training rows only; threshold from eligible known validation rows",
+            "training_policy": (
+                "healthy training rows only; threshold from eligible known validation rows"
+            ),
             "development_unknown_tuning_rows": 0,
             "metadata_sha256": sha256_file(temporal_model_root / "metadata.json"),
         },
         "ground_truth_usage": (
-            "fault interval start is used only after anomaly scoring to measure offline detection delay; "
+            "fault interval start is used only after anomaly scoring to measure offline "
+            "detection delay; "
             "fault family and expected origin never enter severity or anomaly scoring"
         ),
         "metrics": {

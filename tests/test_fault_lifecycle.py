@@ -7,8 +7,11 @@ from experiments.faults.lifecycle import FaultLease, FaultStateStore, utc_now
 
 def acquire(store: FaultStateStore, run_id: str = "fault-run-1"):
     return store.acquire(
-        run_id=run_id, fault_id="SERVICE_UNAVAILABLE", target="payment",
-        intensity="medium", duration_seconds=30,
+        run_id=run_id,
+        fault_id="SERVICE_UNAVAILABLE",
+        target="payment",
+        intensity="medium",
+        duration_seconds=30,
     )
 
 
@@ -43,8 +46,11 @@ def test_lease_cleans_up_and_verifies_recovery_after_body_error(tmp_path) -> Non
     calls: list[str] = []
     with pytest.raises(ValueError, match="experiment failed"):
         with FaultLease(
-            store, activation, lambda _: calls.append("activate"),
-            lambda _: calls.append("deactivate"), lambda: calls.append("verify"),
+            store,
+            activation,
+            lambda _: calls.append("activate"),
+            lambda _: calls.append("deactivate"),
+            lambda: calls.append("verify"),
         ):
             raise ValueError("experiment failed")
     assert calls == ["activate", "deactivate", "verify"]

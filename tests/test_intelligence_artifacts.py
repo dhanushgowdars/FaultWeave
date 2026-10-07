@@ -5,7 +5,6 @@ from pathlib import Path
 
 import joblib
 import pytest
-
 from app.intelligence_artifacts import ArtifactLoadError, load_frozen_artifacts
 
 CLASSES = tuple(f"FAULT_{index}" for index in range(9))

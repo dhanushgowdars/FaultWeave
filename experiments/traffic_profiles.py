@@ -160,9 +160,7 @@ def resolve_rate_segments(
             segment_start += segment_duration
         return tuple(resolved)
     if duration_seconds < fixed_middle:
-        raise ValueError(
-            "duration cannot be shorter than the profile's fixed middle segment"
-        )
+        raise ValueError("duration cannot be shorter than the profile's fixed middle segment")
     shoulder_duration = (duration_seconds - fixed_middle) / 2
     return (
         ResolvedRateSegment(0.0, shoulder_duration, profile.rate_segments[0].multiplier),

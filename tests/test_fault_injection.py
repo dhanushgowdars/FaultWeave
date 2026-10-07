@@ -10,8 +10,10 @@ from faultweave_common.logging import reset_correlation_context, set_correlation
 
 def write_active(tmp_path, **updates) -> None:
     payload = {
-        "run_id": "controlled-run", "fault_id": "DATABASE_HIGH_LATENCY",
-        "target": "transaction", "intensity": "mild",
+        "run_id": "controlled-run",
+        "fault_id": "DATABASE_HIGH_LATENCY",
+        "target": "transaction",
+        "intensity": "mild",
         "expires_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
     }
     payload.update(updates)
@@ -38,8 +40,10 @@ def test_database_latency_applies_only_to_matching_run_and_service(tmp_path, mon
 
 def test_downstream_timeout_raises_for_exact_dependency_edge(tmp_path, monkeypatch) -> None:
     write_active(
-        tmp_path, fault_id="DOWNSTREAM_TIMEOUT",
-        target="transaction->payment", intensity="medium",
+        tmp_path,
+        fault_id="DOWNSTREAM_TIMEOUT",
+        target="transaction->payment",
+        intensity="medium",
     )
     monkeypatch.setattr(fault_injection, "CONTROL_PATH", tmp_path / "active_fault.json")
 
@@ -113,12 +117,8 @@ def test_downstream_error_burst_is_deterministic_and_excludes_health(monkeypatch
     for index in range(30):
         tokens = set_correlation_context("run", f"request-{index}", "trace")
         try:
-            outcomes.append(
-                fault_injection.should_inject_downstream_error("payment", "/internal")
-            )
-            assert not fault_injection.should_inject_downstream_error(
-                "payment", "/health/ready"
-            )
+            outcomes.append(fault_injection.should_inject_downstream_error("payment", "/internal"))
+            assert not fault_injection.should_inject_downstream_error("payment", "/health/ready")
         finally:
             reset_correlation_context(tokens)
     assert any(outcomes)

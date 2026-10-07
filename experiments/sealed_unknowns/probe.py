@@ -17,9 +17,7 @@ from .lifecycle import SealedUnknownLease, SealedUnknownStateStore
 
 PROJECT_DIRECTORY = Path(__file__).resolve().parents[2]
 CONTROL_DIRECTORY = PROJECT_DIRECTORY / "data" / "fault-control"
-OUTPUT_DIRECTORY = (
-    PROJECT_DIRECTORY / "data" / "experiments" / "sealed-unknown-evaluation"
-)
+OUTPUT_DIRECTORY = PROJECT_DIRECTORY / "data" / "experiments" / "sealed-unknown-evaluation"
 
 
 def run_probe(

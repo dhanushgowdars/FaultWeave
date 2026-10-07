@@ -46,9 +46,7 @@ def _detected_run_ids() -> set[str]:
         return set()
     report = _read_json(path)
     return {
-        str(item["run_id"])
-        for item in report.get("results", [])
-        if item.get("detected") is True
+        str(item["run_id"]) for item in report.get("results", []) if item.get("detected") is True
     }
 
 
@@ -148,22 +146,16 @@ def main() -> int:
             raise ValueError("selected verification run contains no client request records")
 
         target_start = datetime.now(UTC) + timedelta(seconds=2)
-        shifted = [
-            _shift_event(item, baseline_start, target_start)
-            for item in selected
-        ]
+        shifted = [_shift_event(item, baseline_start, target_start) for item in selected]
         shifted_requests = [
-            _shift_request(item, baseline_start, target_start)
-            for item in selected_requests
+            _shift_request(item, baseline_start, target_start) for item in selected_requests
         ]
         shifted_baseline_end = target_start + (baseline_end - baseline_start)
         shifted_fault_start = target_start + (fault_start - baseline_start)
         shifted_fault_end = target_start + (fault_end - baseline_start)
 
         baseline_events = [
-            item
-            for item in shifted
-            if parse_timestamp(item["timestamp"]) <= shifted_baseline_end
+            item for item in shifted if parse_timestamp(item["timestamp"]) <= shifted_baseline_end
         ]
         fault_events = [
             item
@@ -207,9 +199,7 @@ def main() -> int:
                     accepted += _post_events(client, chunk)
                     if request_chunk:
                         accepted_requests += _post_requests(client, request_chunk)
-                    response = client.post(
-                        f"{GATEWAY_URL}/api/v1/intelligence/live/evaluate"
-                    )
+                    response = client.post(f"{GATEWAY_URL}/api/v1/intelligence/live/evaluate")
                     if response.status_code not in {200, 409}:
                         response.raise_for_status()
                     if response.status_code == 200:
@@ -219,9 +209,7 @@ def main() -> int:
             listing = client.get(f"{GATEWAY_URL}/api/v1/intelligence/incidents")
             listing.raise_for_status()
             incidents = listing.json().get("incidents", [])
-            live_inference = client.get(
-                f"{GATEWAY_URL}/api/v1/intelligence/live/infer/60"
-            )
+            live_inference = client.get(f"{GATEWAY_URL}/api/v1/intelligence/live/infer/60")
             live_inference.raise_for_status()
             final_live_result = live_inference.json()["result"]
 
@@ -253,10 +241,7 @@ def main() -> int:
         print(f"Incident ID: {incident['incident_id']}")
         print(f"State: {incident['state']}")
         print(f"Classification: {classification['label']}")
-        print(
-            "Final live 60s classification: "
-            f"{final_live_classification['label']}"
-        )
+        print(f"Final live 60s classification: {final_live_classification['label']}")
         print(f"Probable origin: {localization['probable_origin']}")
         print(f"Severity: {severity['level']} ({severity['score']})")
         print(f"Verifier target only (not sent to API): {TARGET_FAULT}")

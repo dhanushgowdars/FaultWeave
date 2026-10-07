@@ -9,7 +9,6 @@ from app.main import (
 )
 from fastapi.testclient import TestClient
 
-
 INCIDENT = {
     "incident_id": "inc-test-0001",
     "state": "ACTIVE",

@@ -91,16 +91,10 @@ def severity_from_feature_windows(
     ]
     failure = _clip01(_mean(failure_values))
 
-    base_request = _mean(
-        [_feature(row, "request_latency_p95_ms") for row in baseline_rows]
-    )
-    current_request = _mean(
-        [_feature(row, "request_latency_p95_ms") for row in incident_rows]
-    )
+    base_request = _mean([_feature(row, "request_latency_p95_ms") for row in baseline_rows])
+    current_request = _mean([_feature(row, "request_latency_p95_ms") for row in incident_rows])
     base_event = _mean([_feature(row, "event_latency_p95_ms") for row in baseline_rows])
-    current_event = _mean(
-        [_feature(row, "event_latency_p95_ms") for row in incident_rows]
-    )
+    current_event = _mean([_feature(row, "event_latency_p95_ms") for row in incident_rows])
 
     def normalized_ratio(current: float, baseline: float) -> float:
         if current <= baseline:
@@ -122,9 +116,7 @@ def severity_from_feature_windows(
         base_latency = _mean([_feature(row, latency_name) for row in baseline_rows])
         current_latency = _mean([_feature(row, latency_name) for row in incident_rows])
         failure_delta = max(0.0, current_failure - base_failure)
-        latency_ratio = (
-            current_latency / max(base_latency, 1.0) if current_latency > 0 else 0.0
-        )
+        latency_ratio = current_latency / max(base_latency, 1.0) if current_latency > 0 else 0.0
         if failure_delta >= 0.15 or latency_ratio >= 2.0:
             affected.append(service)
     breadth = _clip01(len(affected) / max(1, len(SERVICE_NAMES)))
@@ -205,9 +197,7 @@ class LiveIncidentManager:
                     if main_result is not None:
                         public["latest_main_status"] = main_result["status"]
                         if main_result["status"] == "ABNORMAL":
-                            public["classification"] = deepcopy(
-                                main_result["classification"]
-                            )
+                            public["classification"] = deepcopy(main_result["classification"])
                     self._update_impact_and_localization(
                         self._active,
                         buffer,
@@ -256,9 +246,7 @@ class LiveIncidentManager:
             if self._active is None and (temporal_abnormal or main_abnormal):
                 source_window = temporal_window if temporal_abnormal else main_window
                 assert source_window is not None
-                signal_started_at = _parse_timestamp(
-                    str(source_window["window_started_at"])
-                )
+                signal_started_at = _parse_timestamp(str(source_window["window_started_at"]))
                 self._active = self._open_incident(
                     buffer,
                     detected_at=temporal_end,
@@ -276,9 +264,7 @@ class LiveIncidentManager:
                 }
 
             runtime = self._active
-            runtime.incident_feature_rows.append(
-                dict(temporal_window["features"])
-            )
+            runtime.incident_feature_rows.append(dict(temporal_window["features"]))
             runtime.anomaly_flags.append(temporal_abnormal)
             public = runtime.public
             public["updated_at"] = _iso(temporal_end)
@@ -339,9 +325,7 @@ class LiveIncidentManager:
         incident_id = f"inc-{detected_at.strftime('%Y%m%dT%H%M%S')}-{self._counter:04d}"
         baseline_rows: list[dict[str, float]] = []
         baseline_events: tuple[dict[str, Any], ...] = ()
-        baseline_started_at = signal_started_at - timedelta(
-            seconds=BASELINE_WINDOW_SECONDS
-        )
+        baseline_started_at = signal_started_at - timedelta(seconds=BASELINE_WINDOW_SECONDS)
         baseline_available = True
         try:
             for offset in (20, 10, 0):
@@ -378,12 +362,8 @@ class LiveIncidentManager:
             "baseline": {
                 "available": baseline_available,
                 "window_seconds": BASELINE_WINDOW_SECONDS,
-                "window_started_at": (
-                    _iso(baseline_started_at) if baseline_available else None
-                ),
-                "window_ended_at": (
-                    _iso(signal_started_at) if baseline_available else None
-                ),
+                "window_started_at": (_iso(baseline_started_at) if baseline_available else None),
+                "window_ended_at": (_iso(signal_started_at) if baseline_available else None),
             },
             "temporal": {
                 "latest_status": None,

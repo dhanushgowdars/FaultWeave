@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from app.intelligence_live import (
     LiveRequestObservation,
     LiveTelemetryBuffer,
@@ -87,9 +86,7 @@ def test_explicit_client_latency_replaces_gateway_latency_for_model_features() -
 def test_feature_only_snapshot_marks_gateway_derived_request_semantics() -> None:
     buffer = LiveTelemetryBuffer()
     start = datetime(2026, 9, 26, 10, 0, tzinfo=UTC)
-    buffer.ingest(
-        [_event(start), _event(start + timedelta(seconds=11), latency_ms=25.0)]
-    )
+    buffer.ingest([_event(start), _event(start + timedelta(seconds=11), latency_ms=25.0)])
 
     snapshot = buffer.snapshot(10)
 

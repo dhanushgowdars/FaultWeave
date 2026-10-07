@@ -4,7 +4,6 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-
 from app.intelligence_artifacts import FrozenIntelligenceArtifacts
 from app.intelligence_inference import (
     InferenceInputError,
@@ -51,10 +50,7 @@ class FailingClassifier:
 
 
 def artifacts() -> FrozenIntelligenceArtifacts:
-    profiles = {
-        name: {"centers": [0.0, 0.0, 0.0], "scales": [1.0, 1.0, 1.0]}
-        for name in CLASSES
-    }
+    profiles = {name: {"centers": [0.0, 0.0, 0.0], "scales": [1.0, 1.0, 1.0]} for name in CLASSES}
     return FrozenIntelligenceArtifacts(
         feature_names=FEATURES,
         classes=CLASSES,

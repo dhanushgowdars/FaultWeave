@@ -107,18 +107,14 @@ def locate_interval(
 
 def request_interval_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     latencies = [
-        float(item["latency_ms"])
-        for item in records
-        if item.get("latency_ms") is not None
+        float(item["latency_ms"]) for item in records if item.get("latency_ms") is not None
     ]
     statuses = Counter(
-        "null" if item.get("status_code") is None else str(item["status_code"])
-        for item in records
+        "null" if item.get("status_code") is None else str(item["status_code"]) for item in records
     )
     transport_errors = sum(item.get("transport_error") is not None for item in records)
     non_2xx = sum(
-        item.get("status_code") is None
-        or not 200 <= int(item["status_code"]) < 300
+        item.get("status_code") is None or not 200 <= int(item["status_code"]) < 300
         for item in records
     )
     unexpected = sum(not bool(item.get("expected_outcome")) for item in records)
@@ -302,9 +298,7 @@ def profile_final_manifests(
         records = counts["records"]
         null_profile[event_type] = {
             "records": records,
-            "null_counts": {
-                field: counts[field] for field in OPTIONAL_EVENT_FEATURES
-            },
+            "null_counts": {field: counts[field] for field in OPTIONAL_EVENT_FEATURES},
             "null_rates": {
                 field: round(counts[field] / records, 6) for field in OPTIONAL_EVENT_FEATURES
             },
@@ -329,9 +323,7 @@ def profile_final_manifests(
         )
         if interval_total_requests
         else 0,
-        "event_interval_assignment_rate": round(
-            interval_assigned_events / interval_total_events, 6
-        )
+        "event_interval_assignment_rate": round(interval_assigned_events / interval_total_events, 6)
         if interval_total_events
         else 0,
         "fault_signal_runs": signal_runs,
