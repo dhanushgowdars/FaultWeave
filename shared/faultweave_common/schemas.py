@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -252,3 +253,114 @@ class TransferPostingRecord(BaseModel):
     id: UUID
     evidence: TransferEvidence
     recorded_at: datetime
+
+
+class TransferTimelineEvent(BaseModel):
+    """One persisted, correlated step in a durable transfer workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    sequence: int = Field(ge=1)
+    attempt: int = Field(ge=1)
+    timestamp: datetime
+    service: str
+    step: str
+    status: str
+    detail: str
+    request_id: str | None = None
+    trace_id: str | None = None
+    run_id: str | None = None
+
+
+class TransferCaseHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    failures: list[dict[str, Any]] = Field(default_factory=list)
+    reviews: list[dict[str, Any]] = Field(default_factory=list)
+    recoveries: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class TransferSummary(BaseModel):
+    """Stable, non-nested representation used by history and review queues."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    id: str
+    state: str
+    source_account_number: str
+    destination_account_number: str
+    amount_minor: int
+    currency: str
+    idempotency_key: str
+    created_at: datetime
+    latest_event_at: datetime | None = None
+    requires_review: bool
+    funds_status: str
+    failure_count: int = Field(ge=0)
+    review_count: int = Field(ge=0)
+    recovery_count: int = Field(ge=0)
+
+
+class TransferPageMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+    total: int = Field(ge=0)
+    has_more: bool
+
+
+class TransferCollection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    scope: Literal["customer", "engineer"]
+    items: list[TransferSummary]
+    page: TransferPageMetadata
+
+
+class TransferSearchResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    query_field: Literal["transfer_id", "request_id", "trace_id", "idempotency_key"]
+    exact_match: bool = True
+    items: list[TransferSummary]
+
+
+class TransferEvidenceContract(BaseModel):
+    """Versioned case evidence consumed by the UI and future assistant."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    transfer_id: str
+    state: str
+    created_at: datetime
+    transfer: TransferCreate
+    funds_status: str
+    requires_review: bool
+    timeline: list[TransferTimelineEvent]
+    case_history: TransferCaseHistory
+    investigation: dict[str, Any]
+    journal: dict[str, Any] | None = None
+    evidence_sources: dict[str, str]
+
+
+class TransferEvidenceIntegrity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    algorithm: Literal["SHA-256"] = "SHA-256"
+    canonical_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TransferEvidenceExport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    export_type: Literal["faultweave.transfer-evidence"] = "faultweave.transfer-evidence"
+    transfer_id: str
+    evidence: TransferEvidenceContract
+    integrity: TransferEvidenceIntegrity

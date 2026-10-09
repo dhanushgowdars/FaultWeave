@@ -424,6 +424,99 @@ def test_journal_write_failure_rolls_back_both_balances(tmp_path, monkeypatch):
     asyncio.run(scenario())
 
 
+def test_phase16e_history_search_review_queue_and_deterministic_export(tmp_path, monkeypatch):
+    async def scenario():
+        async with system(tmp_path, monkeypatch) as (client, network, _, _):
+            customer_authorization = client.headers["Authorization"]
+            completed = await client.post(
+                "/api/v1/transfers",
+                json=instruction(idempotency_key="phase16e-completed"),
+            )
+            assert completed.status_code == 200, completed.text
+            assert completed.json()["state"] == "COMPLETED"
+
+            network.blocked.add("ledger-service")
+            failed = await client.post(
+                "/api/v1/transfers",
+                json=instruction(amount_minor=5000, idempotency_key="phase16e-review"),
+            )
+            network.blocked.clear()
+            assert failed.status_code == 200, failed.text
+            assert failed.json()["state"] == "REQUIRES_REVIEW"
+            failed_id = failed.json()["id"]
+
+            history = await client.get("/api/v1/transfers?limit=1&offset=0")
+            assert history.status_code == 200, history.text
+            assert history.json()["scope"] == "customer"
+            assert history.json()["page"] == {
+                "limit": 1,
+                "offset": 0,
+                "total": 2,
+                "has_more": True,
+            }
+            assert history.json()["items"][0]["id"] == failed_id
+
+            found = await client.get(
+                "/api/v1/transfers/search",
+                params={"field": "transfer_id", "value": failed_id},
+            )
+            assert found.status_code == 200, found.text
+            assert [item["id"] for item in found.json()["items"]] == [failed_id]
+
+            evidence = await client.get(f"/api/v1/transfers/{failed_id}/evidence")
+            assert evidence.status_code == 200, evidence.text
+            assert evidence.json()["schema_version"] == "1.0"
+            assert evidence.json()["requires_review"] is True
+            failed_events = {
+                item["event_id"]
+                for item in evidence.json()["timeline"]
+                if item["status"] == "FAILED"
+            }
+            cited_failures = {
+                item["event_id"] for item in evidence.json()["case_history"]["failures"]
+            }
+            assert cited_failures <= failed_events
+
+            customer_queue = await client.get("/api/v1/engineer/review-queue")
+            assert customer_queue.status_code == 403
+
+            client.headers["Authorization"] = (
+                f"Bearer {create_access_token(str(uuid4()), role='engineer')}"
+            )
+            queue = await client.get("/api/v1/engineer/review-queue")
+            assert queue.status_code == 200, queue.text
+            assert [item["id"] for item in queue.json()["items"]] == [failed_id]
+
+            resumed = await client.post(
+                f"/api/v1/transfers/{failed_id}/resume",
+                json={"note": "Reviewed ledger evidence and restored the dependency"},
+            )
+            assert resumed.status_code == 200, resumed.text
+            assert resumed.json()["state"] == "COMPLETED"
+
+            first_export = await client.get(f"/api/v1/transfers/{failed_id}/evidence/export")
+            second_export = await client.get(f"/api/v1/transfers/{failed_id}/evidence/export")
+            assert first_export.status_code == 200, first_export.text
+            assert first_export.json() == second_export.json()
+            exported = first_export.json()
+            assert exported["integrity"]["algorithm"] == "SHA-256"
+            assert len(exported["integrity"]["canonical_sha256"]) == 64
+            assert {
+                item["reviewed_by"] for item in exported["evidence"]["case_history"]["reviews"]
+            } == {"engineer"}
+            assert "Bearer " not in first_export.text
+
+            client.headers["Authorization"] = f"Bearer {create_access_token(str(uuid4()))}"
+            assert (await client.get("/api/v1/transfers")).json()["items"] == []
+            assert (await client.get(f"/api/v1/transfers/{failed_id}/evidence")).status_code == 404
+            assert (
+                await client.get(f"/api/v1/transfers/{failed_id}/evidence/export")
+            ).status_code == 404
+            client.headers["Authorization"] = customer_authorization
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.skipif(
     not os.getenv("FW_TRANSFER_TEST_DATABASE_URL"), reason="Requires PostgreSQL row locks"
 )

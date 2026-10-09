@@ -181,7 +181,7 @@ def build_router(factory, get_session):
                     and row.evidence.get("funds_status") != "COMMITTED"
                 ):
                     row.evidence = {**row.evidence, "funds_status": "NOT_COMMITTED"}
-                await record_event(
+                failure_event = await record_event(
                     session,
                     row,
                     "payment",
@@ -194,9 +194,9 @@ def build_router(factory, get_session):
                     row,
                     "failure_history",
                     {
-                        "observed_at": event["timestamp"],
-                        "event_id": event["event_id"],
-                        "attempt": event["attempt"],
+                        "observed_at": failure_event["timestamp"],
+                        "event_id": failure_event["event_id"],
+                        "attempt": failure_event["attempt"],
                         "service": {
                             "account_commit": "account",
                             "ledger_posting": "ledger",
