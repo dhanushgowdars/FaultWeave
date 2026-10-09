@@ -37,11 +37,18 @@ def _decode_b64url(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def create_access_token(subject: str, *, expires_in_seconds: int = 900) -> str:
+def create_access_token(
+    subject: str, *, role: str = "customer", expires_in_seconds: int = 900
+) -> str:
     header = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
     payload = _b64url(
         json.dumps(
-            {"sub": subject, "iat": int(time.time()), "exp": int(time.time()) + expires_in_seconds},
+            {
+                "sub": subject,
+                "role": role,
+                "iat": int(time.time()),
+                "exp": int(time.time()) + expires_in_seconds,
+            },
             separators=(",", ":"),
         ).encode()
     )
@@ -68,14 +75,19 @@ def decode_access_token(token: str) -> dict[str, Any]:
         ) from exc
 
 
-def authenticated_subject(authorization: str = Header(...)) -> str:
+def authenticated_identity(authorization: str = Header(...)) -> dict[str, Any]:
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Bearer token required",
         )
-    return str(decode_access_token(token)["sub"])
+    claims = decode_access_token(token)
+    return {"subject": str(claims["sub"]), "role": str(claims.get("role", "customer"))}
+
+
+def authenticated_subject(authorization: str = Header(...)) -> str:
+    return authenticated_identity(authorization)["subject"]
 
 
 def require_service_token(x_service_token: str = Header(...)) -> None:

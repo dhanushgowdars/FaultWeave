@@ -83,6 +83,14 @@ async def record_event(session, row, service: str, step: str, status: str, detai
         transaction_id=row.id,
         attributes=event,
     )
+    return event
+
+
+async def append_evidence(session, row, name: str, value: dict) -> None:
+    """Append immutable case evidence without replacing earlier attempts."""
+    current = row.evidence or {}
+    row.evidence = {**current, name: [*current.get(name, []), value]}
+    await session.commit()
 
 
 def snapshot(row) -> dict:

@@ -70,7 +70,12 @@ CORE_KNOWN_FAULTS = MappingProxyType(
         ),
         FaultFamily.DOWNSTREAM_TIMEOUT: FaultDefinition(
             fault_id=FaultFamily.DOWNSTREAM_TIMEOUT, tier="core", mechanism="downstream",
-            allowed_targets=("transaction->account", "transaction->payment", "payment->ledger"),
+            allowed_targets=(
+                "transaction->payment",
+                "payment->account",
+                "payment->ledger",
+                "ledger->account",
+            ),
             description="A selected dependency call exceeds its client timeout.",
         ),
         FaultFamily.AUTHENTICATION_FAILURE_BURST: FaultDefinition(

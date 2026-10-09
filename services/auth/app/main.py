@@ -33,15 +33,21 @@ async def get_session():
 
 
 async def seed_demo_user() -> None:
-    username = os.getenv("DEMO_USERNAME", "demo")
-    password = os.getenv("DEMO_PASSWORD", "faultweave-demo")
+    credentials = (
+        (os.getenv("DEMO_USERNAME", "demo"), os.getenv("DEMO_PASSWORD", "faultweave-demo")),
+        (
+            os.getenv("ENGINEER_USERNAME", "engineer"),
+            os.getenv("ENGINEER_PASSWORD", "faultweave-engineer"),
+        ),
+    )
     async with session_factory() as session:
-        statement = (
-            insert(User)
-            .values(username=username, password_hash=hash_password(password))
-            .on_conflict_do_nothing(index_elements=[User.username])
-        )
-        await session.execute(statement)
+        for username, password in credentials:
+            statement = (
+                insert(User)
+                .values(username=username, password_hash=hash_password(password))
+                .on_conflict_do_nothing(index_elements=[User.username])
+            )
+            await session.execute(statement)
         await session.commit()
 
 
@@ -96,4 +102,13 @@ async def login(
         outcome=LogOutcome.SUCCESS,
         user_id=user.id,
     )
-    return LoginResponse(access_token=create_access_token(user.id), user_id=UUID(user.id))
+    role = (
+        "engineer"
+        if user.username == os.getenv("ENGINEER_USERNAME", "engineer")
+        else "customer"
+    )
+    return LoginResponse(
+        access_token=create_access_token(user.id, role=role),
+        user_id=UUID(user.id),
+        role=role,
+    )

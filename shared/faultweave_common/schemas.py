@@ -39,6 +39,7 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int = 900
     user_id: UUID
+    role: str = "customer"
 
 
 class TransactionRequest(LoginRequest):
@@ -240,6 +241,7 @@ class TransferReview(BaseModel):
 class PaymentTransferExecution(BaseModel):
     transfer: TransferCreate
     review: TransferReview | None = None
+    reviewed_by: str | None = None
 
 
 class TransferPostingRequest(BaseModel):

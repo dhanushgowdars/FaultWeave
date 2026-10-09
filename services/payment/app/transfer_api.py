@@ -10,6 +10,7 @@ from faultweave_common.schemas import (
 from faultweave_common.security import authenticated_subject, require_service_token
 from faultweave_common.transfer_http import call_service, failure_detail
 from faultweave_common.transfer_workflow import (
+    append_evidence,
     operation_lock,
     record_event,
     snapshot,
@@ -52,8 +53,21 @@ def build_router(factory, get_session):
                     raise HTTPException(status_code=409, detail="Idempotency key payload mismatch")
                 if row.state == "COMPLETED" or payload.review is None:
                     return snapshot(row)
-                await record_event(
+                event = await record_event(
                     session, row, "payment", "review", "REVIEWED", payload.review.note
+                )
+                await append_evidence(
+                    session,
+                    row,
+                    "review_history",
+                    {
+                        "reviewed_at": event["timestamp"],
+                        "event_id": event["event_id"],
+                        "attempt": event["attempt"],
+                        "reviewed_by": payload.reviewed_by or subject,
+                        "decision": "RETRY_PAYMENT_EVIDENCE",
+                        "note": payload.review.note,
+                    },
                 )
             else:
                 row = TransferWorkflow(
@@ -66,7 +80,7 @@ def build_router(factory, get_session):
                     state="RECEIVED",
                 )
                 session.add(row)
-                await record_event(
+                event = await record_event(
                     session,
                     row,
                     "payment",
@@ -175,9 +189,26 @@ def build_router(factory, get_session):
                     "FAILED",
                     "Payment paused for review: " + row.last_error["detail"],
                 )
+                await append_evidence(
+                    session,
+                    row,
+                    "failure_history",
+                    {
+                        "observed_at": event["timestamp"],
+                        "event_id": event["event_id"],
+                        "attempt": event["attempt"],
+                        "service": {
+                            "account_commit": "account",
+                            "ledger_posting": "ledger",
+                        }.get(step, "payment"),
+                        "step": step,
+                        "error": row.last_error,
+                        "funds_status": row.evidence.get("funds_status", "UNKNOWN"),
+                    },
+                )
                 return snapshot(row)
             row.state = "COMPLETED"
-            await record_event(
+            event = await record_event(
                 session,
                 row,
                 "payment",
@@ -185,6 +216,19 @@ def build_router(factory, get_session):
                 "SUCCEEDED",
                 "Funds movement and ledger posting confirmed",
             )
+            if row.evidence.get("failure_history"):
+                await append_evidence(
+                    session,
+                    row,
+                    "recovery_history",
+                    {
+                        "verified_at": event["timestamp"],
+                        "event_id": event["event_id"],
+                        "attempt": event["attempt"],
+                        "status": "VERIFIED_BY_COMPLETION",
+                        "detail": "Account and ledger confirmations were obtained after review",
+                    },
+                )
             return snapshot(row)
 
     return router

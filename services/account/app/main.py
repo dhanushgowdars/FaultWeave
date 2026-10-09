@@ -32,6 +32,7 @@ from faultweave_common.schemas import (
 from faultweave_common.security import authenticated_subject, require_service_token
 from faultweave_common.transfer_workflow import operation_lock
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Account, Base, Transfer, TransferEntry
@@ -91,17 +92,33 @@ async def lookup_account(
         )
     )
     if account is None and payload.account_number == DEMO_ACCOUNT_NUMBER:
-        account = Account(user_id=user_id, account_number=DEMO_ACCOUNT_NUMBER)
-        session.add(account)
-        await session.commit()
-        await session.refresh(account)
-        logger.info(
-            "demo_account_created",
-            "Demo account created for authenticated user",
-            outcome=LogOutcome.SUCCESS,
-            user_id=user_id,
-            attributes={"account_id": account.id},
+        existing = await session.scalar(
+            select(Account).where(Account.account_number == DEMO_ACCOUNT_NUMBER)
         )
+        if existing is None:
+            account = Account(user_id=user_id, account_number=DEMO_ACCOUNT_NUMBER)
+            session.add(account)
+            try:
+                await session.commit()
+            except IntegrityError:
+                # Another request may have created the globally unique demo account.
+                # Re-query by owner so that a different user's account is never exposed.
+                await session.rollback()
+                account = await session.scalar(
+                    select(Account).where(
+                        Account.user_id == user_id,
+                        Account.account_number == DEMO_ACCOUNT_NUMBER,
+                    )
+                )
+            else:
+                await session.refresh(account)
+                logger.info(
+                    "demo_account_created",
+                    "Demo account created for authenticated user",
+                    outcome=LogOutcome.SUCCESS,
+                    user_id=user_id,
+                    attributes={"account_id": account.id},
+                )
     if account is None:
         logger.warning(
             "account_not_found",

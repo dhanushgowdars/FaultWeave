@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from experiments.faults.lifecycle import FaultActivation
@@ -39,7 +40,7 @@ def deactivate_infrastructure_fault(activation: FaultActivation) -> None:
 def verify_stack_recovery() -> None:
     compose("up", "-d", "--wait")
     result = subprocess.run(
-        ["python", "scripts/smoke_test.py"], cwd=PROJECT_DIRECTORY,
+        [sys.executable, "scripts/smoke_test.py"], cwd=PROJECT_DIRECTORY,
         capture_output=True, check=False, text=True,
     )
     if result.returncode != 0:

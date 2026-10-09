@@ -18,7 +18,7 @@ from app.main import app as gateway_app
 from fastapi import FastAPI, HTTPException
 from faultweave_common import transfer_http
 from faultweave_common.middleware import CorrelationMiddleware
-from faultweave_common.security import create_access_token, hash_password
+from faultweave_common.security import create_access_token, decode_access_token, hash_password
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -142,11 +142,20 @@ async def system(tmp_path, monkeypatch):
     for name in ["AUTH", "ACCOUNT", "TRANSACTION", "PAYMENT", "LEDGER"]:
         monkeypatch.delenv(f"{name}_SERVICE_URL", raising=False)
     subject = str(uuid4())
+    engineer_subject = str(uuid4())
+    monkeypatch.setenv("ENGINEER_USERNAME", "transfer-engineer")
     async with factories["auth"]() as session:
-        session.add(
-            auth.User(
-                id=subject, username="transfer-test", password_hash=hash_password("test-pass")
-            )
+        session.add_all(
+            [
+                auth.User(
+                    id=subject, username="transfer-test", password_hash=hash_password("test-pass")
+                ),
+                auth.User(
+                    id=engineer_subject,
+                    username="transfer-engineer",
+                    password_hash=hash_password("engineer-pass"),
+                ),
+            ]
         )
         await session.commit()
     async with factories["account"]() as session:
@@ -196,6 +205,56 @@ def instruction(**updates):
     }
 
 
+def test_authentication_separates_customer_and_engineer_roles(tmp_path, monkeypatch):
+    async def scenario():
+        async with system(tmp_path, monkeypatch) as (client, _, _, _):
+            customer_claims = client.headers["Authorization"].removeprefix("Bearer ")
+            customer_login = decode_access_token(customer_claims)
+            assert customer_login["role"] == "customer"
+            engineer = await client.post(
+                "/api/v1/auth/login",
+                json={"username": "transfer-engineer", "password": "engineer-pass"},
+            )
+            assert engineer.status_code == 200
+            assert engineer.json()["role"] == "engineer"
+            assert decode_access_token(engineer.json()["access_token"])["role"] == "engineer"
+
+    asyncio.run(scenario())
+
+
+def test_demo_account_is_never_exposed_or_recreated_for_engineer(tmp_path, monkeypatch):
+    async def scenario():
+        async with system(tmp_path, monkeypatch) as (client, _, factories, subject):
+            async with factories["account"]() as session:
+                session.add(
+                    account.Account(
+                        user_id=subject,
+                        account_number=account.DEMO_ACCOUNT_NUMBER,
+                        balance_minor=50000,
+                    )
+                )
+                await session.commit()
+
+            customer_view = await client.get(f"/api/v1/accounts/{account.DEMO_ACCOUNT_NUMBER}")
+            assert customer_view.status_code == 200, customer_view.text
+
+            client.headers["Authorization"] = (
+                f"Bearer {create_access_token(str(uuid4()), role='engineer')}"
+            )
+            engineer_view = await client.get(f"/api/v1/accounts/{account.DEMO_ACCOUNT_NUMBER}")
+            assert engineer_view.status_code == 404, engineer_view.text
+
+            async with factories["account"]() as session:
+                demo_accounts = await session.scalar(
+                    select(func.count())
+                    .select_from(account.Account)
+                    .where(account.Account.account_number == account.DEMO_ACCOUNT_NUMBER)
+                )
+                assert demo_accounts == 1
+
+    asyncio.run(scenario())
+
+
 async def balances(factories):
     async with factories["account"]() as session:
         rows = (
@@ -225,6 +284,9 @@ def test_complete_services_review_and_exactly_once(tmp_path, monkeypatch, failur
                         failure
                     ]
                 )
+                assert evidence["case_history"]["failures"]
+                assert evidence["case_history"]["reviews"] == []
+                assert evidence["case_history"]["recoveries"] == []
                 state_before = await balances(factories)
                 assert state_before[1:] == ((0, 0) if failure == "payment" else (1, 2))
                 calls = len(network.visited)
@@ -233,12 +295,18 @@ def test_complete_services_review_and_exactly_once(tmp_path, monkeypatch, failur
                 assert len(network.visited) == calls + 1  # gateway -> transaction only
                 assert await balances(factories) == state_before
                 network.blocked.clear()
+                customer_authorization = client.headers["Authorization"]
+                engineer_id = str(uuid4())
+                client.headers["Authorization"] = (
+                    f"Bearer {create_access_token(engineer_id, role='engineer')}"
+                )
                 reviewed = await client.post(
                     f"/api/v1/transfers/{case['id']}/resume",
                     json={"note": "Reviewed stored evidence and restored the dependency"},
                 )
                 assert reviewed.status_code == 200, reviewed.text
                 assert reviewed.json()["state"] == "COMPLETED", reviewed.text
+                client.headers["Authorization"] = customer_authorization
             else:
                 assert case["state"] == "COMPLETED", response.text
             replay = await client.post("/api/v1/transfers", json=instruction())
@@ -250,6 +318,11 @@ def test_complete_services_review_and_exactly_once(tmp_path, monkeypatch, failur
             assert evidence["state"] == "COMPLETED"
             assert evidence["funds_status"] == "COMMITTED"
             assert evidence["model_prediction"]["status"] == "NOT_EVALUATED"
+            if failure:
+                assert evidence["case_history"]["failures"]
+                assert evidence["case_history"]["reviews"]
+                assert evidence["case_history"]["recoveries"]
+                assert evidence["investigation"]["cause_status"] == "recovered_after_review"
             assert all(item["trace_id"] == "transfer-trace" for item in evidence["timeline"])
             assert evidence["timeline"] == sorted(
                 evidence["timeline"], key=lambda x: x["timestamp"]
@@ -281,6 +354,11 @@ def test_rejection_and_evidence_ownership(tmp_path, monkeypatch):
                 f"/api/v1/transfers/{case_id}/resume", json={"note": "ok"}
             )
             assert bad_review.status_code == 422
+            customer_review = await client.post(
+                f"/api/v1/transfers/{case_id}/resume",
+                json={"note": "Customer must not approve an operational recovery"},
+            )
+            assert customer_review.status_code == 403
             client.headers["Authorization"] = f"Bearer {create_access_token(str(uuid4()))}"
             assert (await client.get(f"/api/v1/transfers/{case_id}")).status_code == 404
             assert (
@@ -288,7 +366,13 @@ def test_rejection_and_evidence_ownership(tmp_path, monkeypatch):
                     f"/api/v1/transfers/{case_id}/resume",
                     json={"note": "Trying to access another owner's transfer"},
                 )
-            ).status_code == 404
+            ).status_code == 403
+            client.headers["Authorization"] = (
+                f"Bearer {create_access_token(str(uuid4()), role='engineer')}"
+            )
+            engineering_view = await client.get(f"/api/v1/transfers/{case_id}")
+            assert engineering_view.status_code == 200
+            assert engineering_view.json()["state"] == "REQUIRES_REVIEW"
 
     asyncio.run(scenario())
 
@@ -327,6 +411,9 @@ def test_journal_write_failure_rolls_back_both_balances(tmp_path, monkeypatch):
                 assert await balances(factories) == ({"FW-SOURCE": 50000, "FW-DEST": 0}, 0, 0)
             finally:
                 event.remove(engine, "before_cursor_execute", fail_journal)
+            client.headers["Authorization"] = (
+                f"Bearer {create_access_token(str(uuid4()), role='engineer')}"
+            )
             resumed = await client.post(
                 f"/api/v1/transfers/{response.json()['id']}/resume",
                 json={"note": "Journal storage restored and original failure inspected"},
