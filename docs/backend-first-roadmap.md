@@ -10,3 +10,9 @@ Phase 15 source is preserved on its own branch. Work proceeds on phase-16/backen
 6. **Final evaluation and presentation.** Freeze implementation, evaluate the untouched fault family, rehearse full successful/failed/reviewed cases, document limitations and back up source, datasets, model files and database separately.
 
 A passing unit test suite establishes code checks, not completion of every roadmap stage. Each stage must meet its stated live/evidence gate before moving on.
+# Backend-first continuation status
+
+- Phase 16A: durable PostgreSQL transfer workflow — complete.
+- Phase 16B: controlled fault, review and recovery evidence — complete.
+- Phase 16C: evidence-first transfer intelligence compatibility — implemented;
+  frozen model and live acceptance gates remain required before commit.

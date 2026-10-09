@@ -317,7 +317,7 @@ def test_complete_services_review_and_exactly_once(tmp_path, monkeypatch, failur
             evidence = (await client.get(f"/api/v1/transfers/{case['id']}")).json()
             assert evidence["state"] == "COMPLETED"
             assert evidence["funds_status"] == "COMMITTED"
-            assert evidence["model_prediction"]["status"] == "NOT_EVALUATED"
+            assert evidence["model_prediction"]["status"] == "DEFERRED_TO_GATEWAY_WINDOW"
             if failure:
                 assert evidence["case_history"]["failures"]
                 assert evidence["case_history"]["reviews"]

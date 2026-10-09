@@ -15,6 +15,10 @@ from faultweave_common.schemas import (
 from faultweave_common.security import authenticated_subject
 from faultweave_common.transfer_http import call_service
 
+from .intelligence_artifacts import get_frozen_artifacts
+from .intelligence_live import get_live_telemetry_buffer
+from .transfer_intelligence import build_transfer_intelligence
+
 router = APIRouter(prefix="/api/v1")
 
 
@@ -76,6 +80,22 @@ async def transfer_by_key(key: str, request: Request, _: str = Depends(authentic
 async def evidence(transfer_id: str, request: Request, _: str = Depends(authenticated_subject)):
     return await _proxy(
         "transaction", f"/internal/v1/transfers/{transfer_id}", request, method="GET"
+    )
+
+
+@router.get("/transfers/{transfer_id}/intelligence")
+async def transfer_intelligence(
+    transfer_id: str,
+    request: Request,
+    _: str = Depends(authenticated_subject),
+):
+    transfer_evidence = await _proxy(
+        "transaction", f"/internal/v1/transfers/{transfer_id}", request, method="GET"
+    )
+    return build_transfer_intelligence(
+        transfer_evidence,
+        get_live_telemetry_buffer(),
+        get_frozen_artifacts(),
     )
 
 

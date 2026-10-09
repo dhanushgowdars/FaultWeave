@@ -76,9 +76,7 @@ def build_router(factory, get_session):
                         "service": "payment",
                         "step": row.last_error.get("step", "payment_execution"),
                         "error": row.last_error,
-                        "funds_status": payment.get("evidence", {}).get(
-                            "funds_status", "UNKNOWN"
-                        ),
+                        "funds_status": payment.get("evidence", {}).get("funds_status", "UNKNOWN"),
                     },
                 )
                 return snapshot(row)
@@ -203,9 +201,7 @@ def build_router(factory, get_session):
                     "note": review.note,
                 },
             )
-            owner_authorization = (
-                "Bearer " + create_access_token(row.user_id, role="customer")
-            )
+            owner_authorization = "Bearer " + create_access_token(row.user_id, role="customer")
             return await execute(
                 row,
                 session,
@@ -294,8 +290,11 @@ def build_router(factory, get_session):
             }[result["funds_status"]],
         }
         result["model_prediction"] = {
-            "status": "NOT_EVALUATED",
-            "reason": "This transfer case has no validated model feature window yet",
+            "status": "DEFERRED_TO_GATEWAY_WINDOW",
+            "reason": (
+                "Use /api/v1/transfers/{transfer_id}/intelligence; the frozen model "
+                "requires an independently validated rolling telemetry window"
+            ),
         }
         return result
 
@@ -319,15 +318,11 @@ def build_router(factory, get_session):
         session: AsyncSession = Depends(get_session),
     ):
         row = await session.get(TransferWorkflow, transfer_id)
-        if row is None or (
-            row.user_id != identity["subject"] and identity["role"] != "engineer"
-        ):
+        if row is None or (row.user_id != identity["subject"] and identity["role"] != "engineer"):
             raise HTTPException(status_code=404, detail="Transfer not found")
         owner_authorization = authorization
         if identity["role"] == "engineer" and identity["subject"] != row.user_id:
-            owner_authorization = (
-                "Bearer " + create_access_token(row.user_id, role="customer")
-            )
+            owner_authorization = "Bearer " + create_access_token(row.user_id, role="customer")
         return await inspect_row(row, owner_authorization)
 
     return router
