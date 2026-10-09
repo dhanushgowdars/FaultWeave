@@ -4,7 +4,6 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-
 from app.intelligence_artifacts import FrozenIntelligenceArtifacts
 from app.intelligence_inference import (
     InferenceInputError,

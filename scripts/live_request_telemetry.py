@@ -52,7 +52,7 @@ class LiveRequestTelemetryPublisher:
         self.duplicate_total = 0
         self.batches_total = 0
 
-    async def __aenter__(self) -> "LiveRequestTelemetryPublisher":
+    async def __aenter__(self) -> LiveRequestTelemetryPublisher:
         if self._task is not None:
             raise RuntimeError("live request telemetry publisher is already running")
         self._task = asyncio.create_task(self._run())

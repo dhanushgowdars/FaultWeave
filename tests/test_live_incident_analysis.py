@@ -4,10 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 from app.intelligence_incidents import severity_from_feature_windows
 from app.intelligence_localization import (
-    LiveIntervalEvidence,
     TOPOLOGY_EDGES,
+    LiveIntervalEvidence,
     rank_live_origins,
 )
+
 from datasets.incident_impact import severity_from_windows
 from datasets.incident_localization import IntervalEvidence, rank_origins
 

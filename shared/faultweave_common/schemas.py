@@ -176,3 +176,77 @@ class TransactionFlowResponse(BaseModel):
     ledger_entry_id: UUID
     status: TransactionStatus
     message: str
+
+
+class DemoAccountCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_number: str = Field(min_length=3, max_length=40, pattern=r"^FW-[A-Z0-9-]+$")
+
+
+class TransferCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_account_number: str = Field(min_length=3, max_length=40)
+    destination_account_number: str = Field(min_length=3, max_length=40)
+    amount_minor: int = Field(gt=0, le=100_000_000)
+    currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
+    idempotency_key: str = Field(min_length=8, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
+
+
+class TransferRecord(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    source_account_id: UUID
+    destination_account_id: UUID
+    amount_minor: int
+    currency: str
+    idempotency_key: str
+    status: str
+    debit_entry_id: UUID
+    credit_entry_id: UUID
+    created_at: datetime
+
+
+class TransferJournalEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    transfer_id: UUID
+    account_id: UUID
+    direction: str
+    amount_minor: int
+    currency: str
+    created_at: datetime
+
+
+class TransferEvidence(BaseModel):
+    transfer: TransferRecord
+    entries: list[TransferJournalEntry]
+
+
+class TransferReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(min_length=10, max_length=500)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def strip_note(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class PaymentTransferExecution(BaseModel):
+    transfer: TransferCreate
+    review: TransferReview | None = None
+
+
+class TransferPostingRequest(BaseModel):
+    account_transfer_id: UUID
+
+
+class TransferPostingRecord(BaseModel):
+    id: UUID
+    evidence: TransferEvidence
+    recorded_at: datetime

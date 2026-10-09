@@ -219,16 +219,12 @@ def _causal_rerank(
             boost("postgresql", 3.00, "database-wide saturation signature")
 
     # 2) Broad graph latency with almost no failing dependencies is entry-point load.
-    service_latency_count = sum(
-        ev(service, "latency_signal") > 0.50 for service in SERVICE_NAMES
-    )
+    service_latency_count = sum(ev(service, "latency_signal") > 0.50 for service in SERVICE_NAMES)
     edge_latency_count = sum(
-        ev(f"{source}->{target}", "edge_latency_signal") > 0.50
-        for source, target in edges
+        ev(f"{source}->{target}", "edge_latency_signal") > 0.50 for source, target in edges
     )
     failing_edge_count = sum(
-        ev(f"{source}->{target}", "edge_failure_delta") > 0.10
-        for source, target in edges
+        ev(f"{source}->{target}", "edge_failure_delta") > 0.10 for source, target in edges
     )
     broad_load_mode = (
         service_latency_count >= 5
@@ -261,9 +257,7 @@ def _causal_rerank(
                 default=0.0,
             )
             if incoming_strength >= 0.50:
-                unavailable_services.append(
-                    (depths.get(service, 0), incoming_strength, service)
-                )
+                unavailable_services.append((depths.get(service, 0), incoming_strength, service))
     if unavailable_services and not database_mode and not broad_load_mode:
         service = max(unavailable_services)[-1]
         boost(service, 2.00, "callee unavailable while caller observes connection failure")
@@ -296,12 +290,7 @@ def _causal_rerank(
                     candidate,
                 )
             )
-    if (
-        timeout_edges
-        and not database_mode
-        and not broad_load_mode
-        and not unavailable_services
-    ):
+    if timeout_edges and not database_mode and not broad_load_mode and not unavailable_services:
         candidate = max(timeout_edges)[-1]
         boost(candidate, 1.30, "deepest dependency with explicit timeout evidence")
 
@@ -330,8 +319,7 @@ def _causal_rerank(
                 (
                     depths.get(service, 0),
                     max(ev(service, "pool_error_rate"), ev(service, "lock_error_rate")),
-                    ev(service, "inbound_failure_delta")
-                    * ev(service, "emitted_failure_delta"),
+                    ev(service, "inbound_failure_delta") * ev(service, "emitted_failure_delta"),
                     service,
                 )
             )
@@ -343,9 +331,7 @@ def _causal_rerank(
         and not timeout_edges
     ):
         service = max(resource_services)[-1]
-        explicit_resource = max(
-            ev(service, "pool_error_rate"), ev(service, "lock_error_rate")
-        )
+        explicit_resource = max(ev(service, "pool_error_rate"), ev(service, "lock_error_rate"))
         if explicit_resource >= 0.05:
             boost(service, 1.75, "deepest service with explicit pool/lock evidence")
         else:
@@ -384,6 +370,7 @@ def _causal_rerank(
         item["reasons"].append(f"causal_adjustment={amount:.6f}: {reason}")
 
     return sorted(rankings, key=lambda item: (-item["score"], item["candidate"]))
+
 
 def rank_origins(
     baseline: IntervalEvidence,
@@ -438,7 +425,9 @@ def rank_origins(
         unavailable_rate = _token_rate(fault_edge, UNAVAILABLE_TOKENS)
         status_503_rate = _status_rate(fault_edge, 503)
         status_504_rate = _status_rate(fault_edge, 504)
-        transport_rate = max(timeout_rate, connection_rate, unavailable_rate, status_503_rate, status_504_rate)
+        transport_rate = max(
+            timeout_rate, connection_rate, unavailable_rate, status_503_rate, status_504_rate
+        )
         offset = _first_failure_offset(fault_edge, fault.started_at)
         score = (0.65 * failure_delta + 0.25 * latency + 0.10 * transport_rate) * (
             1.0 if transport_rate > 0 else 0.72
@@ -465,11 +454,17 @@ def rank_origins(
     database_delta = _increase(database_rate, baseline_database_rate)
     database_refused_rate = _rate(
         fault.events,
-        lambda item: any(token in _text(item) for token in ("database connection refused", "postgres connection refused")),
+        lambda item: any(
+            token in _text(item)
+            for token in ("database connection refused", "postgres connection refused")
+        ),
     )
     baseline_database_refused_rate = _rate(
         baseline.events,
-        lambda item: any(token in _text(item) for token in ("database connection refused", "postgres connection refused")),
+        lambda item: any(
+            token in _text(item)
+            for token in ("database connection refused", "postgres connection refused")
+        ),
     )
     database_refused_delta = _increase(database_refused_rate, baseline_database_refused_rate)
     affected_services = len(

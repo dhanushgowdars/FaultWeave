@@ -10,7 +10,6 @@ from scripts.live_request_telemetry import (
     request_observation,
 )
 
-
 RESULT = {
     "request_id": "live-000001-request-00001",
     "trace_id": "trace-1",

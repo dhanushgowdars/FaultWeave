@@ -9,10 +9,11 @@ import re
 import subprocess
 import time
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import httpx

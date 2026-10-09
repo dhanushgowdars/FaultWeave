@@ -21,6 +21,7 @@ from faultweave_common.security import authenticated_subject, require_service_to
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Base, LedgerEntry
+from .transfer_api import build_router as build_transfer_router
 
 engine = make_engine()
 session_factory = make_session_factory(engine)
@@ -91,3 +92,6 @@ async def create_entry(
         attributes={"account_id": entry.account_id, "entry_type": entry.entry_type},
     )
     return entry
+
+
+app.include_router(build_transfer_router(session_factory, get_session))

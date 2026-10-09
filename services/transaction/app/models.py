@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from faultweave_common.transfer_workflow import TransferWorkflowMixin
 from sqlalchemy import BigInteger, DateTime, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -33,3 +34,8 @@ class Transaction(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+
+class TransferWorkflow(TransferWorkflowMixin, Base):
+    __tablename__ = "transfer_workflows"
+    __table_args__ = {"schema": "transactions"}

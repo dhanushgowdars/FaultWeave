@@ -270,12 +270,15 @@ def build_incident_impact_report(
         "temporal_detector": {
             "window_seconds": 10,
             "threshold": threshold,
-            "training_policy": "healthy training rows only; threshold from eligible known validation rows",
+            "training_policy": (
+                "healthy training rows only; threshold from eligible known validation rows"
+            ),
             "development_unknown_tuning_rows": 0,
             "metadata_sha256": sha256_file(temporal_model_root / "metadata.json"),
         },
         "ground_truth_usage": (
-            "fault interval start is used only after anomaly scoring to measure offline detection delay; "
+            "fault interval start is used only after anomaly scoring "
+            "to measure offline detection delay; "
             "fault family and expected origin never enter severity or anomaly scoring"
         ),
         "metrics": {

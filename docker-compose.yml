@@ -183,6 +183,7 @@ services:
       dockerfile: services/Dockerfile
       args:
         SERVICE_NAME: gateway
+        REQUIREMENTS_FILE: requirements.txt
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://faultweave:faultweave_dev@postgres:5432/faultweave}
       JWT_SECRET: ${JWT_SECRET:-faultweave-local-jwt-secret}

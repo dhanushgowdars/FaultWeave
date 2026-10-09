@@ -17,14 +17,14 @@ from .intelligence_artifacts import (
     FrozenIntelligenceArtifacts,
     get_frozen_artifacts,
 )
+from .intelligence_incidents import (
+    LiveIncidentManager,
+    get_live_incident_manager,
+)
 from .intelligence_inference import (
     InferenceInputError,
     IntelligenceInferenceRequest,
     run_intelligence_inference,
-)
-from .intelligence_incidents import (
-    LiveIncidentManager,
-    get_live_incident_manager,
 )
 from .intelligence_live import (
     LiveTelemetryBatch,
@@ -41,6 +41,7 @@ from .intelligence_stream import (
     get_live_intelligence_stream,
 )
 from .orchestrator import TransactionOrchestrator
+from .transfer_api import router as transfer_router
 
 app = FastAPI(
     title="FaultWeave API Gateway",
@@ -49,6 +50,7 @@ app = FastAPI(
 )
 logger = configure_logging("gateway")
 app.add_middleware(CorrelationMiddleware, service="gateway")
+app.include_router(transfer_router)
 
 
 def get_orchestrator() -> TransactionOrchestrator:

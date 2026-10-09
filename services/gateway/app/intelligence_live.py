@@ -42,7 +42,7 @@ class LiveTelemetryBatch(BaseModel):
     requests: list[LiveRequestObservation] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
-    def require_observations(self) -> "LiveTelemetryBatch":
+    def require_observations(self) -> LiveTelemetryBatch:
         if not self.events and not self.requests:
             raise ValueError("telemetry batch must contain events or client request observations")
         return self

@@ -66,7 +66,11 @@ def _load_joblib(path: Path) -> Any:
 
 def _require_feature_names(metadata: dict[str, Any], source: str) -> tuple[str, ...]:
     values = metadata.get("feature_names")
-    if not isinstance(values, list) or not values or not all(isinstance(item, str) for item in values):
+    if (
+        not isinstance(values, list)
+        or not values
+        or not all(isinstance(item, str) for item in values)
+    ):
         raise ArtifactLoadError(f"{source} metadata has no valid feature schema")
     if len(values) != len(set(values)):
         raise ArtifactLoadError(f"{source} metadata feature schema contains duplicates")
