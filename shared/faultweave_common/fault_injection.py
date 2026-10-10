@@ -105,6 +105,21 @@ def should_inject_downstream_error(service: str, path: str) -> bool:
     return bucket < rate
 
 
+def should_inject_service_unavailable(service: str, path: str) -> bool:
+    """Return a controlled 503 for a selected service during a demo run.
+
+    Health endpoints remain available so Docker can distinguish an injected
+    dependency outage from a crashed container. The activation is still scoped
+    to one correlated run by :func:`active_fault`.
+    """
+    fault = active_fault()
+    if not fault or fault.get("fault_id") != "SERVICE_UNAVAILABLE":
+        return False
+    if fault.get("target") != service or path.startswith("/health/"):
+        return False
+    return True
+
+
 async def apply_sealed_unknown_downstream_disruption(
     source: str, target: str, url: str
 ) -> None:

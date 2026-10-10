@@ -12,6 +12,7 @@ from faultweave_common.middleware import (
 )
 from faultweave_common.schemas import HealthResponse, TransactionFlowResponse, TransactionRequest
 
+from .demo_api import router as demo_router
 from .intelligence_artifacts import (
     ArtifactLoadError,
     FrozenIntelligenceArtifacts,
@@ -51,6 +52,7 @@ app = FastAPI(
 logger = configure_logging("gateway")
 app.add_middleware(CorrelationMiddleware, service="gateway")
 app.include_router(transfer_router)
+app.include_router(demo_router)
 
 
 def get_orchestrator() -> TransactionOrchestrator:

@@ -215,7 +215,8 @@ services:
       transaction-service:
         condition: service_healthy
     volumes:
-      - ./data/fault-control:/faultweave-control:ro
+      - ./data/fault-control:/faultweave-control
+      - ./data/demo-orchestration:/faultweave-demo
       - ./data/datasets/final/models:/faultweave-models:ro
     ports:
       - "${GATEWAY_HOST_PORT:-18110}:8000"

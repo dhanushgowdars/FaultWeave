@@ -123,3 +123,22 @@ def test_downstream_error_burst_is_deterministic_and_excludes_health(monkeypatch
             reset_correlation_context(tokens)
     assert any(outcomes)
     assert not all(outcomes)
+
+
+def test_service_unavailable_is_scoped_and_keeps_health_visible(monkeypatch) -> None:
+    monkeypatch.setattr(
+        fault_injection,
+        "active_fault",
+        lambda: {
+            "fault_id": "SERVICE_UNAVAILABLE",
+            "target": "ledger",
+            "intensity": "high",
+        },
+    )
+    assert fault_injection.should_inject_service_unavailable(
+        "ledger", "/internal/v1/transfer-postings"
+    )
+    assert not fault_injection.should_inject_service_unavailable(
+        "payment", "/internal/v1/transfer-payments"
+    )
+    assert not fault_injection.should_inject_service_unavailable("ledger", "/health/ready")

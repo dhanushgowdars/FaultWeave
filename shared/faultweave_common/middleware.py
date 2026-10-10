@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse, Response
 from .fault_injection import (
     apply_sealed_unknown_latency_jitter,
     should_inject_downstream_error,
+    should_inject_service_unavailable,
 )
 from .logging import (
     LogOutcome,
@@ -40,7 +41,12 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
         started_at = perf_counter()
         try:
             await apply_sealed_unknown_latency_jitter(self.service, request.url.path)
-            if should_inject_downstream_error(self.service, request.url.path):
+            if should_inject_service_unavailable(self.service, request.url.path):
+                response = JSONResponse(
+                    {"detail": "Service unavailable during controlled fault"},
+                    status_code=503,
+                )
+            elif should_inject_downstream_error(self.service, request.url.path):
                 response = JSONResponse({"detail": "Internal service error"}, status_code=500)
             else:
                 response = await call_next(request)
