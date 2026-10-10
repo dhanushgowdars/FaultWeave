@@ -255,7 +255,9 @@ def _groq_strict_schema(value: Any) -> Any:
     return value
 
 
-def _provider_response_schema(allowed_event_ids: set[str]) -> dict[str, Any]:
+def _provider_response_schema(
+    allowed_event_ids: set[str], *, has_failure: bool = True
+) -> dict[str, Any]:
     """Require citations structurally for every provider-generated factual statement."""
     schema = json.loads(json.dumps(IncidentAssistantAnalysis.model_json_schema()))
     base_statement = schema["$defs"]["IncidentAssistantStatement"]
@@ -280,8 +282,13 @@ def _provider_response_schema(allowed_event_ids: set[str]) -> dict[str, Any]:
     probable_cause["properties"]["kind"]["enum"] = ["ai_inference", "unconfirmed"]
     schema["$defs"]["ProbableCauseIncidentAssistantStatement"] = probable_cause
 
+    first_failure = json.loads(json.dumps(cited_statement))
+    first_failure["properties"]["kind"]["enum"] = [
+        "observed_fact" if has_failure else "unconfirmed"
+    ]
+    schema["$defs"]["FirstFailureIncidentAssistantStatement"] = first_failure
     schema["properties"]["first_failure"] = {
-        "$ref": "#/$defs/CitedIncidentAssistantStatement"
+        "$ref": "#/$defs/FirstFailureIncidentAssistantStatement"
     }
     observed_reference = {"$ref": "#/$defs/ObservedFactIncidentAssistantStatement"}
     schema["properties"]["funds_state"] = observed_reference
@@ -293,6 +300,9 @@ def _provider_response_schema(allowed_event_ids: set[str]) -> dict[str, Any]:
     schema["properties"]["probable_cause"] = {
         "$ref": "#/$defs/ProbableCauseIncidentAssistantStatement"
     }
+    schema["properties"]["observed_facts"]["minItems"] = 3
+    schema["properties"]["recommended_checks"]["minItems"] = 3
+    schema["properties"]["limitations"]["minItems"] = 2
     return schema
 
 
@@ -365,8 +375,17 @@ def assemble_case_context(
     contract = TransferEvidenceContract.model_validate(evidence).model_dump(mode="json")
     timeline = []
     evidence_index: dict[str, dict[str, Any]] = {}
+    # Sequence numbers restart inside each service, so timestamp must lead the
+    # cross-service ordering. Otherwise a later propagation event can appear
+    # before the downstream failure that caused it.
     ordered_events = sorted(
-        contract["timeline"], key=lambda item: (item["sequence"], item["timestamp"])
+        contract["timeline"],
+        key=lambda item: (
+            item["timestamp"],
+            item["service"],
+            item["attempt"],
+            item["sequence"],
+        ),
     )
     for event in ordered_events:
         reduced = _sanitize(
@@ -421,6 +440,73 @@ def _event_ids(item: dict[str, Any] | None) -> list[str]:
     return [str(item["event_id"])] if item and item.get("event_id") else []
 
 
+def _display(value: Any) -> str:
+    return " ".join(str(value or "unknown").replace("_", " ").split())
+
+
+def _case_story(context: dict[str, Any]) -> dict[str, Any]:
+    """Separate the downstream origin from the later workflow propagation event."""
+    events = list(context.get("timeline") or [])
+    failed_events = [
+        event for event in events if str(event.get("status") or "").upper() == "FAILED"
+    ]
+    first_failed = failed_events[0] if failed_events else None
+    history = context.get("case_history") or {}
+    recorded_failures = [
+        item for item in history.get("failures") or [] if isinstance(item, dict)
+    ]
+    expected_service = {
+        "account_commit": "account",
+        "ledger_posting": "ledger",
+        "payment_execution": "payment",
+    }
+    origin = next(
+        (
+            item
+            for item in recorded_failures
+            if str(item.get("service") or "")
+            == expected_service.get(str(item.get("step") or ""))
+        ),
+        recorded_failures[0] if recorded_failures else None,
+    )
+    origin_event = None
+    if origin and origin.get("event_id"):
+        origin_event = next(
+            (
+                event
+                for event in events
+                if event.get("event_id") == origin.get("event_id")
+            ),
+            None,
+        )
+    if origin is None and first_failed is not None:
+        origin = {
+            "event_id": first_failed.get("event_id"),
+            "service": first_failed.get("service"),
+            "step": first_failed.get("step"),
+            "error": {"detail": first_failed.get("detail")},
+        }
+        origin_event = first_failed
+    propagation = next(
+        (
+            event
+            for event in failed_events
+            if event.get("service") == "transaction"
+            and event.get("step") == "payment_execution"
+        ),
+        None,
+    )
+    return {
+        "events": events,
+        "failed_events": failed_events,
+        "first_failed": first_failed,
+        "origin": origin,
+        "origin_event": origin_event,
+        "propagation": propagation,
+        "latest": events[-1] if events else None,
+    }
+
+
 def _model_summary(model: dict[str, Any]) -> tuple[str, str]:
     status = str(model.get("status") or "UNAVAILABLE")
     result = model.get("result")
@@ -451,53 +537,68 @@ def _model_summary(model: dict[str, Any]) -> tuple[str, str]:
 
 
 def deterministic_analysis(context: dict[str, Any]) -> IncidentAssistantAnalysis:
-    events = list(context.get("timeline") or [])
-    failures = [event for event in events if str(event.get("status")).upper() == "FAILED"]
-    first_failure = failures[0] if failures else None
-    latest = events[-1] if events else None
+    story = _case_story(context)
+    events = story["events"]
+    failures = story["failed_events"]
+    first_failure = story["first_failed"]
+    origin = story["origin"]
+    latest = story["latest"]
     state = str(context.get("state") or "UNKNOWN")
     funds_status = str(context.get("funds_status") or "UNKNOWN")
     first_citations = _event_ids(first_failure)
     latest_citations = _event_ids(latest)
 
-    if first_failure:
-        service = str(first_failure.get("service") or "unknown service")
-        step = str(first_failure.get("step") or "unknown step")
-        detail = _safe_text(first_failure.get("detail") or "No detail recorded")
+    if first_failure and origin:
+        event_service = _display(first_failure.get("service"))
+        event_step = _display(first_failure.get("step"))
+        origin_service = _display(origin.get("service"))
+        origin_step = _display(origin.get("step"))
         first = _statement(
             "observed_fact",
-            f"The first persisted failure occurred in {service} at {step}: {detail}.",
+            f"The {event_service} service first recorded the failure during {event_step}. "
+            f"Operational evidence localizes the affected dependency to the "
+            f"{origin_service} service during {origin_step}.",
             first_citations,
         )
         cause = _statement(
             "unconfirmed",
-            f"Deterministic evidence rules identify the failure boundary around {service}/{step}; "
-            "the cited event does not prove an infrastructure root cause by itself.",
-            first_citations,
+            f"Evidence localizes the problem to the {origin_service} service during "
+            f"{origin_step}, but it does not prove the underlying infrastructure cause.",
+            _event_ids(story["origin_event"]) or first_citations,
         )
-        headline = f"Transfer {state}: first failure at {service}/{step}"
+        headline = (
+            f"Transfer paused after {origin_service} failed during {origin_step}"
+            if state == "REQUIRES_REVIEW"
+            else f"Transfer recovered after a {origin_service} failure"
+        )
     else:
         first = _statement(
             "unconfirmed",
-            "No failed workflow event is present in the persisted timeline.",
+            "No failure was recorded; every persisted transfer stage completed successfully.",
+            latest_citations,
         )
         cause = _statement(
             "unconfirmed",
-            "No failure-origin inference is justified for this case.",
+            "No fault origin is reported because the evidence contains no failed event.",
+            latest_citations,
         )
-        headline = f"Transfer {state}: no persisted workflow failure"
+        headline = "Transfer completed successfully"
 
     funds_text = {
         "COMMITTED": (
-            "The stored evidence marks funds as COMMITTED; do not create a new transfer to retry."
+            "Funds are COMMITTED: the debit and credit were persisted. Do not create a new "
+            "transfer to retry this case."
         ),
-        "NOT_COMMITTED": "The stored evidence marks funds as NOT_COMMITTED.",
-        "NOT_ATTEMPTED": "The stored evidence shows that funds movement was not attempted.",
+        "NOT_COMMITTED": "Funds are NOT COMMITTED; no debit or credit was accepted.",
+        "NOT_ATTEMPTED": "Funds movement was NOT ATTEMPTED.",
         "UNKNOWN": (
-            "The stored evidence does not establish the final funds outcome; reconciliation "
-            "is required."
+            "Funds status is UNKNOWN. Reconcile the original transfer before any retry."
         ),
     }.get(funds_status, f"The recorded funds status is {funds_status}.")
+    if funds_status == "COMMITTED" and not first_failure:
+        funds_text = (
+            "Funds are COMMITTED: the debit, credit, and balanced Ledger posting were confirmed."
+        )
     funds = _statement("observed_fact", funds_text, first_citations or latest_citations)
 
     model_kind, model_text = _model_summary(context.get("frozen_model") or {})
@@ -508,19 +609,20 @@ def deterministic_analysis(context: dict[str, Any]) -> IncidentAssistantAnalysis
     if recoveries and state == "COMPLETED":
         recovery = _statement(
             "observed_fact",
-            "The case records engineer review followed by verified recovery and completion.",
+            "An engineer reviewed the evidence, and the same transfer then completed with "
+            "recovery verified.",
             latest_citations,
         )
     elif state == "REQUIRES_REVIEW":
         recovery = _statement(
             "observed_fact",
-            "The transfer remains paused for engineer review; no recovery is claimed.",
+            "No recovery is recorded. The original transfer remains paused for engineer review.",
             latest_citations or first_citations,
         )
     else:
         recovery = _statement(
             "observed_fact",
-            f"The current persisted transfer state is {state}.",
+            "No recovery was needed. The original transfer completed normally.",
             latest_citations,
         )
 
@@ -530,7 +632,6 @@ def deterministic_analysis(context: dict[str, Any]) -> IncidentAssistantAnalysis
             f"The persisted workflow state is {state}.",
             latest_citations,
         ),
-        first,
         funds,
         _statement(
             "observed_fact",
@@ -539,22 +640,40 @@ def deterministic_analysis(context: dict[str, Any]) -> IncidentAssistantAnalysis
             first_citations or latest_citations,
         ),
     ]
-    checks = [
-        "Inspect the cited first-failure event and its immediately preceding event.",
-        "Confirm dependency health independently before approving any resume operation.",
-        "Verify the funds status against the persisted paired journal before retrying.",
-        (
-            "Reuse the original transfer identity for reconciliation; never create a duplicate "
-            "transfer."
-        ),
-    ]
+    if first_failure:
+        facts.insert(1, first)
+    else:
+        facts.insert(
+            1,
+            _statement(
+                "observed_fact",
+                "The ordered timeline contains no event with FAILED status.",
+                latest_citations,
+            ),
+        )
+    checks = (
+        [
+            "Open the completed transfer receipt and confirm its final state.",
+            "Compare the sender debit and recipient credit in the account record.",
+            "Confirm that the paired Ledger posting is balanced.",
+        ]
+        if not first_failure
+        else [
+            "Open the cited failure and the event immediately before it in the ordered timeline.",
+            "Confirm dependency health independently before approving any resume operation.",
+            "Verify the funds status against the persisted paired journal before retrying.",
+            (
+                "Reuse the original transfer identity for reconciliation; never create a "
+                "duplicate transfer."
+            ),
+        ]
+    )
     return IncidentAssistantAnalysis.model_validate(
         {
             "headline": headline,
             "executive_summary": (
-                f"FaultWeave reconstructed this case from {len(events)} ordered persisted events. "
-                f"The transfer is {state}, funds status is {funds_status}, and every factual claim "
-                "below is tied to stored evidence where an event citation exists."
+                f"FaultWeave reconstructed {len(events)} persisted events in timestamp order. "
+                f"The transfer is {state} and the funds state is {funds_status}."
             ),
             "first_failure": first,
             "funds_state": funds,
@@ -617,6 +736,80 @@ def validate_grounding(
     return analysis
 
 
+def _normalized_words(value: Any) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", str(value or "").lower()))
+
+
+def _mentions_identifier(text: str, value: str) -> bool:
+    expected = _normalized_words(value)
+    return bool(expected) and expected.issubset(_normalized_words(text))
+
+
+def validate_case_alignment(
+    analysis: IncidentAssistantAnalysis, context: dict[str, Any]
+) -> IncidentAssistantAnalysis:
+    """Reject fluent explanations that contradict deterministic case evidence."""
+    story = _case_story(context)
+    failures = story["failed_events"]
+    if failures:
+        first = failures[0]
+        event_id = str(first.get("event_id") or "")
+        if event_id not in analysis.first_failure.evidence_event_ids:
+            raise CitationValidationError(
+                "first_failure must cite the first persisted failed event"
+            )
+        if not _mentions_identifier(analysis.first_failure.text, str(first.get("service") or "")):
+            raise CitationValidationError("first_failure must name the persisted service")
+        if not _mentions_identifier(analysis.first_failure.text, str(first.get("step") or "")):
+            raise CitationValidationError("first_failure must name the persisted workflow step")
+    elif analysis.first_failure.kind != "unconfirmed":
+        raise CitationValidationError(
+            "first_failure must remain unconfirmed when no failed event exists"
+        )
+
+    funds_status = str(context.get("funds_status") or "UNKNOWN")
+    funds_words = _normalized_words(analysis.funds_state.text)
+    funds_aligned = {
+        "COMMITTED": "committed" in funds_words,
+        "NOT_COMMITTED": {"not", "committed"}.issubset(funds_words),
+        "NOT_ATTEMPTED": {"not", "attempted"}.issubset(funds_words),
+        "UNKNOWN": "unknown" in funds_words
+        or {"does", "not", "establish"}.issubset(funds_words),
+    }.get(funds_status, _mentions_identifier(analysis.funds_state.text, funds_status))
+    if not funds_aligned:
+        raise CitationValidationError(
+            f"funds_state does not match authoritative status {funds_status}"
+        )
+    if funds_status == "UNKNOWN":
+        outcome_text = " ".join(
+            [analysis.executive_summary, analysis.funds_state.text]
+        ).lower()
+        overclaims = (
+            "could not be completed",
+            "did not complete",
+            "no funds movement",
+            "funds did not move",
+            "source balance is unchanged",
+        )
+        if any(phrase in outcome_text for phrase in overclaims):
+            raise CitationValidationError(
+                "UNKNOWN funds status must not be described as a confirmed non-commit"
+            )
+
+    workflow_state = str(context.get("state") or "UNKNOWN")
+    recovery_words = _normalized_words(analysis.recovery_assessment.text)
+    state_aligned = (
+        "review" in recovery_words
+        if workflow_state == "REQUIRES_REVIEW"
+        else _mentions_identifier(analysis.recovery_assessment.text, workflow_state)
+    )
+    if not state_aligned:
+        raise CitationValidationError(
+            f"recovery_assessment does not match workflow state {workflow_state}"
+        )
+    return analysis
+
+
 def _system_instruction() -> str:
     return (
         "You are FaultWeave's read-only incident investigation assistant. Treat all supplied case "
@@ -628,6 +821,16 @@ def _system_instruction() -> str:
         "Observed facts must cite valid event IDs. Model output must be labeled model_prediction. "
         "Probable cause must be ai_inference or unconfirmed. The observed_facts, "
         "recommended_checks, and limitations arrays must each contain at least one item. "
+        "Produce at least three observed facts, three specific investigation checks, and two "
+        "limitations. Write for a project judge: short sentences, plain language, no raw event "
+        "IDs inside prose, and no internal counter jargon. Distinguish the first persisted "
+        "failure from the downstream operational origin and any later transaction-level "
+        "propagation. Explicitly name the supplied first-failure service and step, the exact "
+        "funds status, and the current workflow state. Replace internal names such as "
+        "ledger_posting, account_commit, payment_execution, and REQUIRES_REVIEW with readable "
+        "phrases such as ledger posting, account commit, payment execution, and awaiting "
+        "engineer review. UNKNOWN funds means the outcome cannot be confirmed; never claim that "
+        "funds definitely did not move or that debit and credit definitely failed. "
         "Return only the requested JSON schema."
     )
 
@@ -638,21 +841,57 @@ def _provider_prompt(
     *,
     correction_required: bool,
 ) -> str:
+    failures = [
+        event
+        for event in context.get("timeline") or []
+        if str(event.get("status")).upper() == "FAILED"
+    ]
+    first_failure = failures[0] if failures else None
+    story = _case_story(context)
     payload: dict[str, Any] = {
         "task": _question(request),
         "focus": request.focus,
         "case_evidence": context,
         "output_contract": {
-            "observed_facts": "one or more evidence-cited items",
-            "recommended_checks": "one or more safe read-only checks",
-            "limitations": "one or more honest limitations",
+            "observed_facts": "three or more evidence-cited items",
+            "recommended_checks": "three or more specific safe read-only checks",
+            "limitations": "two or more honest limitations",
+            "exact_workflow_state": context.get("state"),
+            "exact_funds_status": context.get("funds_status"),
+            "funds_semantics": {
+                "COMMITTED": "debit and credit are persisted",
+                "NOT_COMMITTED": "debit and credit were confirmed not committed",
+                "NOT_ATTEMPTED": "funds movement was never requested",
+                "UNKNOWN": (
+                    "the outcome cannot be confirmed; require reconciliation and do not claim "
+                    "that funds moved or did not move"
+                ),
+            }.get(str(context.get("funds_status"))),
+            "exact_first_failed_event": first_failure,
+            "operational_origin": story["origin"],
+            "transaction_propagation_event": story["propagation"],
+            "presentation_order": [
+                "customer outcome",
+                "first persisted failure",
+                "operational origin",
+                "funds safety",
+                "engineer action or verified recovery",
+            ],
+            "style": (
+                "plain English; one or two sentences per field; keep UUIDs only in "
+                "evidence_event_ids, never in narrative text"
+            ),
         },
     }
     if correction_required:
         payload["correction"] = (
             "The previous response failed the local safety contract. Return at least one item "
             "in observed_facts, recommended_checks, and limitations. Every observed fact must "
-            "cite one or more event IDs present in case_evidence. Do not invent an event ID."
+            "cite one or more event IDs present in case_evidence. Use the exact first-failure "
+            "service and step plus the exact funds and workflow states supplied in "
+            "output_contract. If exact_first_failed_event is null, first_failure.kind must be "
+            "unconfirmed and it must say no failure was recorded. Keep event IDs only in citation "
+            "arrays. Do not invent an event ID."
         )
     return json.dumps(payload, sort_keys=True, default=str)
 
@@ -733,7 +972,8 @@ class GroundedIncidentAssistant:
         mode = "deterministic_fallback"
         status = "DETERMINISTIC_FALLBACK"
         fallback_reason: str | None = None
-        analysis = deterministic_analysis(context)
+        fallback_analysis = deterministic_analysis(context)
+        analysis = fallback_analysis
         if not self.settings.enabled:
             fallback_reason = "assistant_disabled"
         elif self.provider is None:
@@ -752,10 +992,15 @@ class GroundedIncidentAssistant:
                             request,
                             correction_required=validation_attempt > 0,
                         ),
-                        response_schema=_provider_response_schema(set(evidence_index)),
+                        response_schema=_provider_response_schema(
+                            set(evidence_index),
+                            has_failure=bool(_case_story(context)["first_failed"]),
+                        ),
                     )
                     candidate = IncidentAssistantAnalysis.model_validate(raw)
-                    analysis = validate_grounding(candidate, set(evidence_index))
+                    validated = validate_grounding(candidate, set(evidence_index))
+                    validated = validate_case_alignment(validated, context)
+                    analysis = validated
                     mode = "ai_generated"
                     status = "AI_GENERATED"
                     fallback_reason = None

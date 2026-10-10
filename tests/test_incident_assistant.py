@@ -12,6 +12,7 @@ from app.incident_assistant import (
     _provider_response_schema,
     assemble_case_context,
     deterministic_analysis,
+    validate_case_alignment,
 )
 from faultweave_common.schemas import IncidentAssistantAnalysis, IncidentAssistantRequest
 
@@ -158,6 +159,67 @@ def test_provider_schema_requires_citations_for_factual_statements() -> None:
     assert schema["properties"]["observed_facts"]["items"] == {
         "$ref": "#/$defs/ObservedFactIncidentAssistantStatement"
     }
+    assert schema["properties"]["observed_facts"]["minItems"] == 3
+    assert schema["properties"]["recommended_checks"]["minItems"] == 3
+    assert schema["properties"]["limitations"]["minItems"] == 2
+
+
+def test_normal_case_schema_forces_no_failure_claim() -> None:
+    schema = _provider_response_schema(
+        {"event-start", "event-failure"}, has_failure=False
+    )
+
+    first = schema["$defs"]["FirstFailureIncidentAssistantStatement"]
+    assert first["properties"]["kind"]["enum"] == ["unconfirmed"]
+
+
+def test_cross_service_timeline_is_ordered_by_timestamp_not_local_sequence() -> None:
+    value = evidence()
+    value["timeline"] = [
+        {
+            **value["timeline"][1],
+            "event_id": "transaction-propagation",
+            "sequence": 3,
+            "timestamp": "2026-10-09T10:00:03+00:00",
+            "service": "transaction",
+            "step": "payment_execution",
+        },
+        {
+            **value["timeline"][1],
+            "event_id": "ledger-origin",
+            "sequence": 5,
+            "timestamp": "2026-10-09T10:00:02+00:00",
+            "service": "payment",
+            "step": "ledger_posting",
+        },
+    ]
+
+    context, _, _ = assemble_case_context(value, intelligence())
+
+    assert [item["event_id"] for item in context["timeline"]] == [
+        "ledger-origin",
+        "transaction-propagation",
+    ]
+
+
+def test_case_alignment_rejects_a_fluent_but_wrong_funds_claim() -> None:
+    context, _, _ = assemble_case_context(evidence(), intelligence())
+    analysis = deterministic_analysis(context).model_copy(deep=True)
+    analysis.funds_state.text = "Funds are committed."
+
+    with pytest.raises(ValueError, match="authoritative status NOT_ATTEMPTED"):
+        validate_case_alignment(analysis, context)
+
+
+def test_case_alignment_rejects_overclaim_when_funds_are_unknown() -> None:
+    value = evidence()
+    value["funds_status"] = "UNKNOWN"
+    context, _, _ = assemble_case_context(value, intelligence())
+    analysis = deterministic_analysis(context).model_copy(deep=True)
+    analysis.executive_summary = "The debit and credit could not be completed."
+
+    with pytest.raises(ValueError, match="UNKNOWN funds status"):
+        validate_case_alignment(analysis, context)
 
 
 class FakeProvider:
@@ -191,6 +253,17 @@ class EmptyChecksThenValidProvider(FakeProvider):
             answer["recommended_checks"] = []
         else:
             assert "previous response failed" in prompt.lower()
+        return answer
+
+
+class WrongNormalFailureProvider(FakeProvider):
+    async def generate(self, *, system_instruction, prompt, response_schema):
+        answer = await super().generate(
+            system_instruction=system_instruction,
+            prompt=prompt,
+            response_schema=response_schema,
+        )
+        answer["funds_state"]["text"] = "Funds are committed."
         return answer
 
 
@@ -271,6 +344,19 @@ async def test_hallucinated_citation_forces_deterministic_fallback() -> None:
     assert result["status"] == "DETERMINISTIC_FALLBACK"
     assert "CitationValidationError" in result["provenance"]["fallback_reason"]
     assert "invented-event" not in str(result["analysis"])
+
+
+@pytest.mark.anyio
+async def test_invalid_provider_candidate_never_leaks_into_fallback() -> None:
+    provider = WrongNormalFailureProvider()
+    service = GroundedIncidentAssistant(
+        settings(enabled=True, api_key="configured-for-test"), provider=provider
+    )
+
+    result = await service.explain(evidence(), intelligence(), IncidentAssistantRequest())
+
+    assert result["status"] == "DETERMINISTIC_FALLBACK"
+    assert "NOT ATTEMPTED" in result["analysis"]["funds_state"]["text"]
 
 
 @pytest.mark.anyio
