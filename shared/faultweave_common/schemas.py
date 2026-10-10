@@ -364,3 +364,72 @@ class TransferEvidenceExport(BaseModel):
     transfer_id: str
     evidence: TransferEvidenceContract
     integrity: TransferEvidenceIntegrity
+
+
+class IncidentAssistantRequest(BaseModel):
+    """A bounded investigation request, not a general-purpose chat message."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    focus: Literal["overview", "first_failure", "funds", "recovery", "model"] = "overview"
+    question: str | None = Field(default=None, max_length=400)
+
+    @field_validator("question")
+    @classmethod
+    def normalize_question(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized or None
+
+
+class IncidentAssistantStatement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["observed_fact", "model_prediction", "ai_inference", "unconfirmed"]
+    text: str = Field(min_length=1, max_length=800)
+    evidence_event_ids: list[str] = Field(max_length=12)
+
+
+class IncidentAssistantAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    headline: str = Field(min_length=1, max_length=180)
+    executive_summary: str = Field(min_length=1, max_length=1200)
+    first_failure: IncidentAssistantStatement
+    funds_state: IncidentAssistantStatement
+    model_assessment: IncidentAssistantStatement
+    probable_cause: IncidentAssistantStatement
+    observed_facts: list[IncidentAssistantStatement] = Field(min_length=1, max_length=12)
+    recommended_checks: list[str] = Field(min_length=1, max_length=8)
+    recovery_assessment: IncidentAssistantStatement
+    limitations: list[str] = Field(min_length=1, max_length=8)
+
+
+class IncidentAssistantProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    model: str
+    mode: Literal["ai_generated", "deterministic_fallback"]
+    evidence_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_contract_version: Literal["16f.1"] = "16f.1"
+    generated_at: datetime
+    cached: bool
+    fallback_reason: str | None = None
+    ground_truth_used: Literal[False] = False
+
+
+class IncidentAssistantResponse(BaseModel):
+    """Grounded, read-only explanation returned to customers and engineers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    transfer_id: str
+    focus: Literal["overview", "first_failure", "funds", "recovery", "model"]
+    status: Literal["AI_GENERATED", "DETERMINISTIC_FALLBACK"]
+    analysis: IncidentAssistantAnalysis
+    evidence_index: dict[str, dict[str, Any]]
+    provenance: IncidentAssistantProvenance
+    safety: dict[str, Any]

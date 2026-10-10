@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from faultweave_common.schemas import (
     AccountRecord,
     DemoAccountCreate,
+    IncidentAssistantRequest,
+    IncidentAssistantResponse,
     LoginRequest,
     LoginResponse,
     TransferCollection,
@@ -19,9 +21,10 @@ from faultweave_common.schemas import (
     TransferReview,
     TransferSearchResponse,
 )
-from faultweave_common.security import authenticated_subject
+from faultweave_common.security import authenticated_identity, authenticated_subject
 from faultweave_common.transfer_http import call_service
 
+from .incident_assistant import GroundedIncidentAssistant, get_incident_assistant
 from .intelligence_artifacts import get_frozen_artifacts
 from .intelligence_live import get_live_telemetry_buffer
 from .transfer_intelligence import build_transfer_intelligence
@@ -150,6 +153,22 @@ async def transfer_contract(
             "known_class_count": len(artifacts.classes),
             "open_set_label": artifacts.open_set_label,
         },
+        "assistant_contract": {
+            "contract_version": "16f.1",
+            "read_only": True,
+            "evidence_schema_version": "1.0",
+            "ground_truth_allowed": False,
+            "external_context_allowed": False,
+            "provider_optional": True,
+            "deterministic_fallback": True,
+            "supported_focus": [
+                "overview",
+                "first_failure",
+                "funds",
+                "recovery",
+                "model",
+            ],
+        },
     }
 
 
@@ -202,6 +221,54 @@ async def transfer_intelligence(
         get_live_telemetry_buffer(),
         get_frozen_artifacts(),
     )
+
+
+@router.post(
+    "/transfers/{transfer_id}/assistant/explain",
+    response_model=IncidentAssistantResponse,
+)
+async def explain_transfer_case(
+    transfer_id: str,
+    payload: IncidentAssistantRequest,
+    request: Request,
+    _: dict = Depends(authenticated_identity),
+    assistant: GroundedIncidentAssistant = Depends(get_incident_assistant),
+):
+    """Explain one authorized case without performing any operational action."""
+    normalized = await _proxy(
+        "transaction",
+        f"/internal/v1/transfers/{transfer_id}/evidence",
+        request,
+        method="GET",
+    )
+    raw = await _proxy(
+        "transaction",
+        f"/internal/v1/transfers/{transfer_id}",
+        request,
+        method="GET",
+    )
+    try:
+        intelligence = build_transfer_intelligence(
+            raw,
+            get_live_telemetry_buffer(),
+            get_frozen_artifacts(),
+        )
+    except Exception as exc:  # The evidence explanation must survive optional ML unavailability.
+        intelligence = {
+            "decision_authority": {
+                "workflow_and_journal": "authoritative for transfer outcome and funds state",
+                "machine_learning": "temporarily unavailable",
+                "ground_truth_used": False,
+            },
+            "probable_origin": None,
+            "model": {
+                "status": "UNAVAILABLE",
+                "reason": f"frozen model channel unavailable: {type(exc).__name__}",
+                "scope": "rolling_system_telemetry",
+                "result": None,
+            },
+        }
+    return await assistant.explain(normalized, intelligence, payload)
 
 
 @router.post("/transfers/{transfer_id}/resume")
