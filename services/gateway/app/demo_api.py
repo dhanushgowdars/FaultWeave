@@ -21,6 +21,7 @@ from .demo_orchestration import (
     DemoSessionCreate,
     DemoSessionStore,
     append_demo_event,
+    build_blind_comparison,
     demo_correlation,
     new_session,
     public_session,
@@ -103,6 +104,11 @@ async def contract(_: dict = Depends(_engineer)) -> dict[str, Any]:
         "control_records": "Restart-persistent demo sequencing without financial authority",
         "automatic_recovery": False,
         "ground_truth_used_by_model_or_assistant": False,
+        "blind_random_challenge": {
+            "enabled": True,
+            "selection": "server-side commit/reveal over accepted scenarios",
+            "reveal_requires_analysis": True,
+        },
         "ordered_actions": [
             "prepare",
             "arm_fault",
@@ -165,6 +171,11 @@ async def arm_fault(
     control: DemoFaultControl = Depends(get_demo_fault_control),
 ) -> dict[str, Any]:
     session = _session_or_404(store, session_id)
+    if session.get("mode") == "BLIND_RANDOM":
+        raise HTTPException(
+            status_code=409,
+            detail="Blind challenge faults are armed internally by the run action",
+        )
     if session["state"] not in {"PREPARED", "FAULT_ARMED"}:
         raise HTTPException(status_code=409, detail="Fault cannot be armed from current state")
     if session["scenario"]["fault_id"] is None:
@@ -210,13 +221,11 @@ async def _raw_evidence(transfer_id: str, authorization: str) -> dict[str, Any]:
     )
 
 
-@router.post("/sessions/{session_id}/execute")
-async def execute_transfer(
+async def _execute_session(
     session_id: str,
-    authorization: str = Header(...),
-    _: dict = Depends(_engineer),
-    store: DemoSessionStore = Depends(get_demo_store),
-    control: DemoFaultControl = Depends(get_demo_fault_control),
+    authorization: str,
+    store: DemoSessionStore,
+    control: DemoFaultControl,
 ) -> dict[str, Any]:
     session = _session_or_404(store, session_id)
     scenario = session["scenario"]
@@ -259,7 +268,24 @@ async def execute_transfer(
                 customer_authorization,
                 transfer,
             )
-    finally:
+    except Exception:
+        if scenario["fault_id"] is not None:
+            control.clear(session_id)
+
+        def failure_update(value: dict[str, Any]) -> None:
+            value["state"] = "EXECUTION_ERROR"
+            if value.get("activation"):
+                value["activation"]["cleared_at"] = datetime.now(UTC).isoformat()
+            append_demo_event(
+                value,
+                "transfer_execution_error",
+                "FAILED",
+                "Execution stopped unexpectedly; the challenge condition was safely cleared.",
+            )
+
+        await store.mutate(session_id, failure_update)
+        raise
+    else:
         if scenario["fault_id"] is not None:
             control.clear(session_id)
 
@@ -308,6 +334,74 @@ async def execute_transfer(
 
     updated = await store.mutate(session_id, update)
     return {"session": public_session(updated), "evidence": evidence}
+
+
+@router.post("/sessions/{session_id}/execute")
+async def execute_transfer(
+    session_id: str,
+    authorization: str = Header(...),
+    _: dict = Depends(_engineer),
+    store: DemoSessionStore = Depends(get_demo_store),
+    control: DemoFaultControl = Depends(get_demo_fault_control),
+) -> dict[str, Any]:
+    session = _session_or_404(store, session_id)
+    if session.get("mode") == "BLIND_RANDOM":
+        raise HTTPException(
+            status_code=409,
+            detail="Use the blind run action so scenario identity remains sealed",
+        )
+    return await _execute_session(session_id, authorization, store, control)
+
+
+@router.post("/sessions/{session_id}/run")
+async def run_blind_challenge(
+    session_id: str,
+    authorization: str = Header(...),
+    _: dict = Depends(_engineer),
+    store: DemoSessionStore = Depends(get_demo_store),
+    control: DemoFaultControl = Depends(get_demo_fault_control),
+) -> dict[str, Any]:
+    session = _session_or_404(store, session_id)
+    if session.get("mode") != "BLIND_RANDOM":
+        raise HTTPException(status_code=409, detail="Session is not a blind random challenge")
+    if session["state"] != "PREPARED":
+        raise HTTPException(status_code=409, detail="Blind challenge has already started")
+
+    if session["scenario"]["fault_id"] is not None:
+        try:
+            activation = control.arm(session)
+        except (RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        def arm_update(value: dict[str, Any]) -> None:
+            value["state"] = "FAULT_ARMED"
+            value["activation"] = {
+                "activation_id": activation["activation_id"],
+                "armed_at": activation["activated_at"],
+                "expires_at": activation["expires_at"],
+                "cleared_at": None,
+            }
+            append_demo_event(
+                value,
+                "blind_execution_started",
+                "READY",
+                "The server prepared the committed challenge; its identity remains sealed.",
+            )
+
+        await store.mutate(session_id, arm_update)
+    else:
+
+        def normal_start_update(value: dict[str, Any]) -> None:
+            append_demo_event(
+                value,
+                "blind_execution_started",
+                "READY",
+                "The server prepared the committed challenge; its identity remains sealed.",
+            )
+
+        await store.mutate(session_id, normal_start_update)
+
+    return await _execute_session(session_id, authorization, store, control)
 
 
 @router.post("/sessions/{session_id}/analyze")
@@ -366,6 +460,50 @@ async def analyze_session(
         "intelligence": intelligence,
         "assistant": assistant_json,
     }
+
+
+@router.post("/sessions/{session_id}/reveal")
+async def reveal_blind_challenge(
+    session_id: str,
+    _: dict = Depends(_engineer),
+    store: DemoSessionStore = Depends(get_demo_store),
+) -> dict[str, Any]:
+    session = _session_or_404(store, session_id)
+    if session.get("mode") != "BLIND_RANDOM":
+        raise HTTPException(status_code=409, detail="Session is not a blind random challenge")
+    if session.get("analysis_status") != "READY":
+        raise HTTPException(
+            status_code=409,
+            detail="Complete evidence analysis before revealing the committed scenario",
+        )
+    if session["challenge"].get("revealed_at") is not None:
+        return {
+            "session": public_session(session),
+            "comparison": session["snapshots"]["challenge_comparison"],
+        }
+    try:
+        comparison = build_blind_comparison(session)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    revealed_at = datetime.now(UTC).isoformat()
+
+    def update(value: dict[str, Any]) -> None:
+        value["challenge"]["revealed_at"] = revealed_at
+        value["challenge"]["revealed_nonce"] = value["challenge"].pop("secret_nonce")
+        value["snapshots"]["challenge_comparison"] = comparison
+        append_demo_event(
+            value,
+            "challenge_revealed",
+            "VERIFIED",
+            (
+                "The committed scenario was revealed after analysis; its cryptographic "
+                "commitment was verified."
+            ),
+        )
+
+    updated = await store.mutate(session_id, update)
+    return {"session": public_session(updated), "comparison": comparison}
 
 
 @router.post("/sessions/{session_id}/approve")

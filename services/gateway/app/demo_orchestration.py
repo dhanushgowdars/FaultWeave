@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,11 +15,20 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from faultweave_common.logging import reset_correlation_context, set_correlation_context
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-DEMO_CONTRACT_VERSION = "17.1"
+DEMO_CONTRACT_VERSION = "19.0"
 DEMO_ROOT = Path(os.getenv("FAULTWEAVE_DEMO_ROOT", "/faultweave-demo"))
 FAULT_CONTROL_PATH = Path(os.getenv("FAULT_CONTROL_PATH", "/faultweave-control/active_fault.json"))
+BLIND_CHALLENGE_VERSION = "phase19a-v1"
+BLIND_SCENARIO_IDS = (
+    "normal-transfer",
+    "payment-service-unavailable",
+    "ledger-service-unavailable",
+    "account-response-timeout",
+    "ledger-response-timeout",
+    "account-error-response",
+)
 
 
 class DemoScenario(BaseModel):
@@ -107,7 +117,8 @@ DEMO_SCENARIOS = MappingProxyType(
 class DemoSessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scenario_id: str
+    mode: Literal["CONTROLLED", "BLIND_RANDOM"] = "CONTROLLED"
+    scenario_id: str | None = None
     source_account_number: str = Field(default="FW-DEMO-001", min_length=3, max_length=40)
     destination_account_number: str | None = Field(default=None, min_length=3, max_length=40)
     amount_minor: int = Field(default=1000, gt=0, le=100_000_000)
@@ -121,6 +132,14 @@ class DemoSessionCreate(BaseModel):
     @classmethod
     def normalize_presentation_text(cls, value: Any) -> Any:
         return " ".join(value.split()) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_mode_and_scenario(self) -> DemoSessionCreate:
+        if self.mode == "CONTROLLED" and not self.scenario_id:
+            raise ValueError("controlled mode requires scenario_id")
+        if self.mode == "BLIND_RANDOM" and self.scenario_id is not None:
+            raise ValueError("blind random mode selects the scenario on the server")
+        return self
 
 
 class DemoApproval(BaseModel):
@@ -198,19 +217,55 @@ class DemoSessionStore:
             return self.save(session)
 
 
+def _blind_scenario_id(secret_nonce: str) -> str:
+    digest = hashlib.sha256(f"{BLIND_CHALLENGE_VERSION}:{secret_nonce}".encode()).digest()
+    return BLIND_SCENARIO_IDS[int.from_bytes(digest[:8], "big") % len(BLIND_SCENARIO_IDS)]
+
+
+def _blind_commitment(secret_nonce: str, scenario_id: str) -> str:
+    return hashlib.sha256(
+        f"{BLIND_CHALLENGE_VERSION}:{secret_nonce}:{scenario_id}".encode()
+    ).hexdigest()
+
+
+def verify_blind_commitment(challenge: dict[str, Any], scenario_id: str) -> bool:
+    nonce = challenge.get("secret_nonce") or challenge.get("revealed_nonce")
+    if not isinstance(nonce, str):
+        return False
+    return secrets.compare_digest(
+        str(challenge.get("commitment_sha256") or ""),
+        _blind_commitment(nonce, scenario_id),
+    )
+
+
 def new_session(payload: DemoSessionCreate, created_by: str) -> dict[str, Any]:
-    try:
-        scenario = DEMO_SCENARIOS[payload.scenario_id]
-    except KeyError as exc:
-        raise ValueError("unsupported demo scenario") from exc
+    challenge: dict[str, Any] | None = None
+    if payload.mode == "BLIND_RANDOM":
+        secret_nonce = secrets.token_hex(32)
+        scenario_id = _blind_scenario_id(secret_nonce)
+        scenario = DEMO_SCENARIOS[scenario_id]
+        challenge = {
+            "selector_version": BLIND_CHALLENGE_VERSION,
+            "pool_size": len(BLIND_SCENARIO_IDS),
+            "commitment_sha256": _blind_commitment(secret_nonce, scenario_id),
+            "secret_nonce": secret_nonce,
+            "revealed_at": None,
+        }
+    else:
+        try:
+            scenario = DEMO_SCENARIOS[str(payload.scenario_id)]
+        except KeyError as exc:
+            raise ValueError("unsupported demo scenario") from exc
     now = datetime.now(UTC).isoformat()
     session_id = f"demo-{uuid4().hex[:16]}"
     destination = payload.destination_account_number or f"FW-{session_id[5:].upper()}"
     session = {
         "contract_version": DEMO_CONTRACT_VERSION,
         "session_id": session_id,
+        "mode": payload.mode,
         "state": "PREPARED",
         "scenario": scenario.model_dump(),
+        "challenge": challenge,
         "transfer": {
             "source_account_number": payload.source_account_number,
             "destination_account_number": destination,
@@ -238,7 +293,11 @@ def new_session(payload: DemoSessionCreate, created_by: str) -> dict[str, Any]:
         session,
         "session_prepared",
         "READY",
-        "Demo case prepared; no transfer or fault has executed yet.",
+        (
+            "Blind challenge committed on the server; its scenario remains sealed."
+            if payload.mode == "BLIND_RANDOM"
+            else "Demo case prepared; no transfer or fault has executed yet."
+        ),
     )
     return session
 
@@ -359,4 +418,73 @@ def public_session(session: dict[str, Any]) -> dict[str, Any]:
     snapshots = result.get("snapshots", {})
     if "assistant" in snapshots:
         snapshots["assistant"].pop("evidence_index", None)
+    challenge = result.get("challenge")
+    if isinstance(challenge, dict):
+        challenge.pop("secret_nonce", None)
+        if challenge.get("revealed_at") is None:
+            result.pop("activation", None)
+            if result.get("state") == "FAULT_ARMED":
+                result["state"] = "RUNNING"
+            result["scenario"] = {
+                "scenario_id": "SEALED_RANDOM_CHALLENGE",
+                "title": "Blind random challenge",
+                "summary": (
+                    "The backend committed one verified scenario. Its identity remains sealed "
+                    "until evidence analysis is complete."
+                ),
+                "fault_id": None,
+                "target": None,
+                "intensity": None,
+                "expected_step": None,
+                "expected_funds_status": "SEALED",
+                "recommended": True,
+            }
     return result
+
+
+def build_blind_comparison(session: dict[str, Any]) -> dict[str, Any]:
+    if session.get("mode") != "BLIND_RANDOM" or not session.get("challenge"):
+        raise ValueError("session is not a blind random challenge")
+    scenario = session["scenario"]
+    challenge = session["challenge"]
+    if not verify_blind_commitment(challenge, scenario["scenario_id"]):
+        raise RuntimeError("blind challenge commitment verification failed")
+
+    intelligence = (session.get("snapshots") or {}).get("intelligence") or {}
+    model = intelligence.get("model") or {}
+    model_result = model.get("result") or {}
+    classification = model_result.get("classification") or {}
+    predicted_label = classification.get("label")
+    expected_label = scenario.get("fault_id") or "NORMAL"
+    origin = intelligence.get("probable_origin") or {}
+    facts = intelligence.get("operational_facts") or {}
+    observed_step = origin.get("step") or facts.get("observed_step")
+    expected_step = scenario.get("expected_step")
+    return {
+        "commitment_verified": True,
+        "selector_version": challenge["selector_version"],
+        "injected_scenario": {
+            "scenario_id": scenario["scenario_id"],
+            "fault_id": scenario.get("fault_id"),
+            "target": scenario.get("target"),
+            "expected_step": expected_step,
+        },
+        "model_comparison": {
+            "status": model.get("status", "UNAVAILABLE"),
+            "predicted_label": predicted_label,
+            "expected_label": expected_label,
+            "match": predicted_label == expected_label if predicted_label else None,
+            "ground_truth_used_by_model": False,
+        },
+        "workflow_comparison": {
+            "observed_service": origin.get("service") or facts.get("observed_service"),
+            "observed_step": observed_step,
+            "expected_step": expected_step,
+            "step_match": (
+                observed_step == expected_step
+                if expected_step is not None
+                else not bool(facts.get("failure_observed"))
+            ),
+            "basis": "persisted workflow evidence collected before reveal",
+        },
+    }
