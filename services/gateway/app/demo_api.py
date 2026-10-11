@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from faultweave_common.schemas import IncidentAssistantRequest
 from faultweave_common.security import authenticated_identity
 from faultweave_common.transfer_http import call_service
@@ -134,6 +134,18 @@ async def create_session(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     store.save(session)
     return public_session(session)
+
+
+@router.get("/sessions")
+async def list_sessions(
+    _: dict = Depends(_engineer),
+    store: DemoSessionStore = Depends(get_demo_store),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> dict[str, Any]:
+    return {
+        "contract_version": DEMO_CONTRACT_VERSION,
+        "items": [public_session(item) for item in store.list(limit=limit)],
+    }
 
 
 @router.get("/sessions/{session_id}")
@@ -332,9 +344,7 @@ async def analyze_session(
     # Keep compatibility with protocol-conforming test/providers that return a
     # Pydantic response object, but never require a second serialization pass.
     assistant_json = (
-        explanation.model_dump(mode="json")
-        if hasattr(explanation, "model_dump")
-        else explanation
+        explanation.model_dump(mode="json") if hasattr(explanation, "model_dump") else explanation
     )
 
     def update(value: dict[str, Any]) -> None:
@@ -429,15 +439,14 @@ async def recover_session(
     )
     before = session["snapshots"]["balances_before"]
     amount = transfer["amount_minor"]
-    journal_entries = ((evidence.get("journal") or {}).get("entries") or [])
+    journal_entries = (evidence.get("journal") or {}).get("entries") or []
     verified = (
         evidence["state"] == "COMPLETED"
         and evidence["funds_status"] == "COMMITTED"
         and bool(evidence["case_history"]["reviews"])
         and bool(evidence["case_history"]["recoveries"])
         and source_after["balance_minor"] == before["source"]["balance_minor"] - amount
-        and destination_after["balance_minor"]
-        == before["destination"]["balance_minor"] + amount
+        and destination_after["balance_minor"] == before["destination"]["balance_minor"] + amount
         and len(journal_entries) == 2
         and {entry["direction"] for entry in journal_entries} == {"DEBIT", "CREDIT"}
     )

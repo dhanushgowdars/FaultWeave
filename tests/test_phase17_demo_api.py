@@ -131,9 +131,7 @@ def test_fault_demo_requires_analysis_and_approval_before_recovery(tmp_path, mon
     session_id = created.json()["session_id"]
     armed = client.post(f"/api/v1/demo/sessions/{session_id}/arm", headers=headers)
     assert armed.status_code == 200
-    executed = client.post(
-        f"/api/v1/demo/sessions/{session_id}/execute", headers=headers
-    )
+    executed = client.post(f"/api/v1/demo/sessions/{session_id}/execute", headers=headers)
     assert executed.status_code == 200
     assert executed.json()["session"]["state"] == "AWAITING_REVIEW"
     assert control.read() is None
@@ -144,9 +142,7 @@ def test_fault_demo_requires_analysis_and_approval_before_recovery(tmp_path, mon
         headers=headers,
     )
     assert blocked.status_code == 409
-    analyzed = client.post(
-        f"/api/v1/demo/sessions/{session_id}/analyze", headers=headers
-    )
+    analyzed = client.post(f"/api/v1/demo/sessions/{session_id}/analyze", headers=headers)
     assert analyzed.status_code == 200
     assert analyzed.json()["assistant"]["provenance"]["ground_truth_used"] is False
     approved = client.post(
@@ -156,9 +152,7 @@ def test_fault_demo_requires_analysis_and_approval_before_recovery(tmp_path, mon
     )
     assert approved.status_code == 200
     assert approved.json()["state"] == "APPROVED"
-    recovered = client.post(
-        f"/api/v1/demo/sessions/{session_id}/recover", headers=headers
-    )
+    recovered = client.post(f"/api/v1/demo/sessions/{session_id}/recover", headers=headers)
     assert recovered.status_code == 200
     final = recovered.json()["session"]
     assert final["state"] == "RECOVERED"
@@ -179,3 +173,45 @@ def test_customer_cannot_use_demo_control_api() -> None:
         "/api/v1/demo/scenarios", headers={"Authorization": "Bearer customer"}
     )
     assert response.status_code == 403
+
+
+def test_demo_session_history_contains_only_persisted_runs(tmp_path) -> None:
+    store = DemoSessionStore(tmp_path / "demo")
+    app = FastAPI()
+    app.include_router(demo_api.router)
+    app.dependency_overrides[authenticated_identity] = lambda: {
+        "subject": "engineer-id",
+        "role": "engineer",
+    }
+    app.dependency_overrides[demo_api.get_demo_store] = lambda: store
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer engineer-token"}
+
+    created = client.post(
+        "/api/v1/demo/sessions",
+        json={
+            "scenario_id": "normal-transfer",
+            "source_account_number": "FW-DEMO-001",
+            "destination_account_number": "FW-DEMO-HISTORY",
+            "amount_minor": 1234,
+            "currency": "INR",
+            "sender_name": "  Dhanush   R S  ",
+            "recipient_name": "Ananya Rao",
+            "payment_channel": "UPI",
+            "purpose": "  Project   demonstration  ",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201
+    session = created.json()
+    assert session["presentation"] == {
+        "sender_name": "Dhanush R S",
+        "recipient_name": "Ananya Rao",
+        "payment_channel": "UPI",
+        "purpose": "Project demonstration",
+    }
+
+    history = client.get("/api/v1/demo/sessions?limit=10", headers=headers)
+    assert history.status_code == 200
+    assert [item["session_id"] for item in history.json()["items"]] == [session["session_id"]]
+    assert history.json()["items"][0]["transfer"]["amount_minor"] == 1234

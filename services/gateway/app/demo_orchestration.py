@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from faultweave_common.logging import reset_correlation_context, set_correlation_context
@@ -18,9 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DEMO_CONTRACT_VERSION = "17.1"
 DEMO_ROOT = Path(os.getenv("FAULTWEAVE_DEMO_ROOT", "/faultweave-demo"))
-FAULT_CONTROL_PATH = Path(
-    os.getenv("FAULT_CONTROL_PATH", "/faultweave-control/active_fault.json")
-)
+FAULT_CONTROL_PATH = Path(os.getenv("FAULT_CONTROL_PATH", "/faultweave-control/active_fault.json"))
 
 
 class DemoScenario(BaseModel):
@@ -114,6 +112,15 @@ class DemoSessionCreate(BaseModel):
     destination_account_number: str | None = Field(default=None, min_length=3, max_length=40)
     amount_minor: int = Field(default=1000, gt=0, le=100_000_000)
     currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
+    sender_name: str = Field(default="Demo sender", min_length=2, max_length=80)
+    recipient_name: str = Field(default="Demo recipient", min_length=2, max_length=80)
+    payment_channel: Literal["UPI", "DEBIT_CARD", "NET_BANKING"] = "UPI"
+    purpose: str = Field(default="FaultWeave demonstration", min_length=2, max_length=120)
+
+    @field_validator("sender_name", "recipient_name", "purpose", mode="before")
+    @classmethod
+    def normalize_presentation_text(cls, value: Any) -> Any:
+        return " ".join(value.split()) if isinstance(value, str) else value
 
 
 class DemoApproval(BaseModel):
@@ -162,6 +169,26 @@ class DemoSessionStore:
         os.replace(temporary, path)
         return session
 
+    def list(self, *, limit: int = 25) -> list[dict[str, Any]]:
+        """Return recent, valid demo sessions without inventing presentation history."""
+        sessions: list[dict[str, Any]] = []
+        directory = self.root / "sessions"
+        if not directory.exists():
+            return sessions
+        for path in directory.glob("demo-*.json"):
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(value, dict) or value.get("session_id") != path.stem:
+                continue
+            sessions.append(value)
+        sessions.sort(
+            key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
+            reverse=True,
+        )
+        return sessions[:limit]
+
     async def mutate(self, session_id: str, operation) -> dict[str, Any]:
         async with self._lock:
             session = self.load(session_id)
@@ -190,6 +217,12 @@ def new_session(payload: DemoSessionCreate, created_by: str) -> dict[str, Any]:
             "amount_minor": payload.amount_minor,
             "currency": payload.currency,
             "idempotency_key": f"{session_id}-transfer",
+        },
+        "presentation": {
+            "sender_name": payload.sender_name,
+            "recipient_name": payload.recipient_name,
+            "payment_channel": payload.payment_channel,
+            "purpose": payload.purpose,
         },
         "transfer_id": None,
         "created_by": created_by,

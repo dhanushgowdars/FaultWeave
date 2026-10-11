@@ -14,6 +14,7 @@ FaultWeave is a controlled digital-transaction microservice environment for stud
 - Recursive credential redaction and a stable operational event taxonomy
 - Rotating Docker logs and validated JSONL export for later dataset generation
 - Seeded normal-traffic profiles with immutable manifests and checksummed run artifacts
+- Engineer-only React command center for real Phase 17 demo sessions, evidence, grounded analysis, approval, and recovery
 
 ## Normal request path
 
@@ -49,6 +50,27 @@ Open API docs at <http://localhost:18110/docs>. Stop the stack with:
 ```bash
 docker compose down
 ```
+
+## Run the Phase 18 command center
+
+After the Docker services are healthy, start the React development server in a second
+terminal:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173> and sign in using the local engineer credentials from
+`.env` (`engineer` / `faultweave-engineer` by default). Vite proxies `/api` and
+`/health` to the Gateway at `http://localhost:18110`, so the browser does not need a
+permissive CORS policy.
+
+The command center lists the six real Phase 17 scenarios. Its seventh validated
+assistant state is the post-recovery analysis of the Ledger-unavailable case; it is not
+presented as an additional fault. Workflow animation replays returned persisted events
+and never fabricates service success while an API call is pending.
 
 FaultWeave uses a separate host-port range to avoid the existing ReclaimRail and older project mappings:
 
