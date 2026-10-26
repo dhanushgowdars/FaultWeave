@@ -2,6 +2,14 @@
 
 FaultWeave is a controlled digital-transaction microservice environment for studying log anomaly detection and probable incident-origin localization. It simulates transactions only; it does not move real money or use real customer data.
 
+## V2 Command Center
+
+The current research build adds a verified 126-experiment V2 dataset, a frozen 65-feature Candidate 04 classifier, two sealed-unknown evaluations, passive and rolling telemetry pilots, an authenticated Command Center bridge, persisted case evidence, first-failure localization, grounded explanations, and explicit engineer-controlled recovery.
+
+The browser interface is stored in `command-center/dist/`. It connects to the real gateway and isolated research services while keeping operational evidence, historical model receipts, and current telemetry clearly separated. See [Command Center](docs/COMMAND_CENTER.md) and [verified project status](docs/FAULTWEAVE_STATUS.md).
+
+Candidate 04 remains research-only. Its exact development and sealed-unknown results are reported with their sample counts and are not general production-accuracy claims. The frozen model and verified feature dataset are protected by recorded SHA-256 identities; runtime data and model binaries remain outside normal source commits.
+
 ## Current status
 
 - API Gateway, Authentication, Account, Transaction, Payment, and Ledger services
@@ -176,3 +184,4 @@ stored in their evidence artifacts.
 The extended known-fault set adds genuine PostgreSQL lock contention and a live-service
 downstream error burst. These remain separate classes from generic database latency and
 service unavailability.
+

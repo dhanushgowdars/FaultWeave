@@ -29,7 +29,8 @@ The normal case moves directly from `PREPARED` to `COMPLETED`.
 |---|---|
 | `GET /api/v1/demo/contract` | Read the frozen orchestration contract. |
 | `GET /api/v1/demo/scenarios` | List one normal and five controlled cases. |
-| `POST /api/v1/demo/sessions` | Prepare a case without executing anything. |
+| `POST /api/v1/demo/sessions` | Prepare a case and its non-financial display metadata without executing anything. |
+| `GET /api/v1/demo/sessions` | List persisted demo sessions for the engineer evidence history. |
 | `POST /api/v1/demo/sessions/{id}/arm` | Arm the selected fault only. |
 | `POST /api/v1/demo/sessions/{id}/execute` | Execute one real durable transfer. |
 | `POST /api/v1/demo/sessions/{id}/analyze` | Join evidence, model channel and assistant output. |
