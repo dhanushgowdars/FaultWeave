@@ -385,6 +385,16 @@ class LiveTelemetryBuffer:
             }
         self._first_observed = self._events[0][0] if self._events else None
 
+    def observation_status(self) -> dict[str, Any]:
+        """Read the event watermark without requiring a complete inference window."""
+        with self._lock:
+            return {
+                "last_event_at": _iso(self._watermark) if self._watermark else None,
+                "buffered_events": len(self._events),
+                "buffered_requests": len(self._requests),
+                "independent_requests_observed": self._explicit_request_mode,
+            }
+
     def snapshot(
         self,
         window_seconds: int,

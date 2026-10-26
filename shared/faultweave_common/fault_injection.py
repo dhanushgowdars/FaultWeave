@@ -19,6 +19,8 @@ _POOL_CAPACITY = {"mild": 8, "medium": 12, "high": 15}
 _POOL_LOCK = asyncio.Lock()
 _HELD_CONNECTIONS: dict[str, list[AsyncConnection]] = {}
 _LOCK_HOLDERS: dict[str, AsyncConnection] = {}
+_LOCK_STARTUP_LOCK = asyncio.Lock()
+_LEASE_POLL_SECONDS = 0.25
 
 
 def _stable_fraction(value: str) -> float:
@@ -57,16 +59,39 @@ async def apply_downstream_timeout(source: str, target: str, url: str) -> None:
     raise httpx.ReadTimeout("controlled downstream timeout", request=request)
 
 
+async def _wait_for_fault_lease_end(fault: dict) -> None:
+    """Release held resources on control-file clear, replacement, or expiry.
+
+    A request-scoped fault lease can be cleared long before expires_at. Only an
+    exact matching activation is allowed to keep database resources reserved.
+    The timeout check also ensures cleanup if the controller dies abruptly.
+    """
+    expires_at = datetime.fromisoformat(str(fault["expires_at"]).replace("Z", "+00:00"))
+    expected = {key: fault[key] for key in ("activation_id", "run_id", "fault_id", "target")}
+    while True:
+        remaining = (expires_at - datetime.now(UTC)).total_seconds()
+        if remaining <= 0:
+            return
+        try:
+            active = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+            return
+        if not isinstance(active, dict) or any(active.get(key) != value for key, value in expected.items()):
+            return
+        await asyncio.sleep(min(_LEASE_POLL_SECONDS, remaining))
+
+
 async def _release_pool_after(
-    service: str, connections: list[AsyncConnection], delay: float
+    service: str, connections: list[AsyncConnection], fault: dict
 ) -> None:
     try:
-        await asyncio.sleep(max(0.1, delay))
+        await _wait_for_fault_lease_end(fault)
     finally:
         await asyncio.gather(
             *(connection.close() for connection in connections), return_exceptions=True
         )
-        _HELD_CONNECTIONS.pop(service, None)
+        if _HELD_CONNECTIONS.get(service) is connections:
+            _HELD_CONNECTIONS.pop(service, None)
 
 
 async def apply_connection_pool_exhaustion(engine: AsyncEngine, service: str) -> None:
@@ -88,9 +113,7 @@ async def apply_connection_pool_exhaustion(engine: AsyncEngine, service: str) ->
             )
             raise
         _HELD_CONNECTIONS[service] = connections
-        expires_at = datetime.fromisoformat(str(fault["expires_at"]).replace("Z", "+00:00"))
-        remaining = (expires_at - datetime.now(UTC)).total_seconds()
-        asyncio.create_task(_release_pool_after(service, connections, remaining))
+        asyncio.create_task(_release_pool_after(service, connections, fault.copy()))
 
 
 def should_inject_downstream_error(service: str, path: str) -> bool:
@@ -168,14 +191,19 @@ async def apply_sealed_unknown_latency_jitter(service: str, path: str) -> None:
 
 
 async def _release_database_lock(
-    service: str, connection: AsyncConnection, lock_key: int, delay: float
+    service: str, connection: AsyncConnection, lock_key: int, fault: dict
 ) -> None:
     try:
-        await asyncio.sleep(max(0.1, delay))
-        await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key})
+        await _wait_for_fault_lease_end(fault)
     finally:
-        await connection.close()
-        _LOCK_HOLDERS.pop(service, None)
+        # A session-level PostgreSQL advisory lock survives ordinary transaction
+        # rollback; explicitly unlock even when the cleanup task is cancelled.
+        try:
+            await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key})
+        finally:
+            await connection.close()
+            if _LOCK_HOLDERS.get(service) is connection:
+                _LOCK_HOLDERS.pop(service, None)
 
 
 async def apply_database_lock_contention(
@@ -187,11 +215,14 @@ async def apply_database_lock_contention(
     if fault.get("target") != service:
         return
     lock_key = {"transaction": 41001, "payment": 41002, "ledger": 41003}[service]
-    if service not in _LOCK_HOLDERS:
-        holder = await engine.connect()
-        await holder.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock_key})
-        _LOCK_HOLDERS[service] = holder
-        expires_at = datetime.fromisoformat(str(fault["expires_at"]).replace("Z", "+00:00"))
-        remaining = (expires_at - datetime.now(UTC)).total_seconds()
-        asyncio.create_task(_release_database_lock(service, holder, lock_key, remaining))
+    async with _LOCK_STARTUP_LOCK:
+        if service not in _LOCK_HOLDERS:
+            holder = await engine.connect()
+            try:
+                await holder.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock_key})
+            except BaseException:
+                await holder.close()
+                raise
+            _LOCK_HOLDERS[service] = holder
+            asyncio.create_task(_release_database_lock(service, holder, lock_key, fault.copy()))
     await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})

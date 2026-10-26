@@ -1,0 +1,21 @@
+services:
+  auth-service:
+    volumes:
+      - ./data/v2-isolated-db/fault-control:/faultweave-control:ro
+  account-service:
+    volumes:
+      - ./data/v2-isolated-db/fault-control:/faultweave-control:ro
+  transaction-service:
+    volumes:
+      - ./data/v2-isolated-db/fault-control:/faultweave-control:ro
+  payment-service:
+    volumes:
+      - ./data/v2-isolated-db/fault-control:/faultweave-control:ro
+  ledger-service:
+    volumes:
+      - ./data/v2-isolated-db/fault-control:/faultweave-control:ro
+  gateway:
+    volumes:
+      - ./data/v2-isolated-db/fault-control:/faultweave-control
+      - ./data/v2-isolated-db/demo-orchestration:/faultweave-demo
+      - ./data/datasets/final/models:/faultweave-models:ro

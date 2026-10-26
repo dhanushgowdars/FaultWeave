@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from faultweave_common.logging import LogOutcome, configure_logging
 from faultweave_common.middleware import (
@@ -11,8 +11,10 @@ from faultweave_common.middleware import (
     request_id,
 )
 from faultweave_common.schemas import HealthResponse, TransactionFlowResponse, TransactionRequest
+from faultweave_common.security import authenticated_identity
 
 from .demo_api import router as demo_router
+from .command_center_status import command_center_snapshot
 from .intelligence_artifacts import (
     ArtifactLoadError,
     FrozenIntelligenceArtifacts,
@@ -95,6 +97,19 @@ async def intelligence_ready(
     artifacts: FrozenIntelligenceArtifacts = Depends(get_intelligence_artifacts),
 ) -> dict[str, object]:
     return dict(artifacts.readiness())
+
+
+@app.get("/api/v1/command-center/snapshot")
+async def command_center_read_only_snapshot(
+    response: Response,
+    identity: dict = Depends(authenticated_identity),
+    buffer: LiveTelemetryBuffer = Depends(get_live_telemetry_buffer),
+    manager: LiveIncidentManager = Depends(get_live_incident_manager),
+) -> dict[str, object]:
+    if identity["role"] != "engineer":
+        raise HTTPException(status_code=403, detail="Engineer access required")
+    response.headers["Cache-Control"] = "no-store"
+    return command_center_snapshot(buffer, manager)
 
 
 @app.post("/api/v1/intelligence/infer")

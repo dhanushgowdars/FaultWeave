@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from .intelligence_artifacts import FrozenIntelligenceArtifacts
 from .intelligence_inference import IntelligenceInferenceRequest, run_intelligence_inference
 from .intelligence_live import LiveTelemetryBuffer, LiveWindowNotReady
+from .phase19b1_capture import capture_if_enabled
 
 
 def _timestamp(value: Any) -> datetime:
@@ -144,6 +146,14 @@ def _model_channel(
             features=snapshot["features"],
         ),
     )
+    # Capture exactly the vector used above; keep diagnostics out of the API/AI payload.
+    try:
+        capture_if_enabled(snapshot, result, artifacts.feature_names)
+    except (OSError, ValueError, TypeError) as exc:
+        # An optional audit must never alter banking behavior or model results.
+        logging.getLogger(__name__).warning(
+            "Phase 19B.1 capture unavailable: %s", type(exc).__name__
+        )
     return {
         "status": "EVALUATED",
         "reason": None,
@@ -160,6 +170,8 @@ def build_transfer_intelligence(
     evidence: dict[str, Any],
     buffer: LiveTelemetryBuffer,
     artifacts: FrozenIntelligenceArtifacts,
+    *,
+    model_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join authoritative workflow evidence with an independently valid ML window."""
     facts = _failure_summary(evidence)
@@ -178,13 +190,16 @@ def build_transfer_intelligence(
         "transfer_state": evidence.get("state"),
         "decision_authority": {
             "workflow_and_journal": "authoritative for transfer outcome and funds state",
-            "machine_learning": "independent rolling-system anomaly evidence",
+            "machine_learning": (
+                "independent challenge-only frozen-model evidence"
+                if model_override is not None else "independent rolling-system anomaly evidence"
+            ),
             "ground_truth_used": False,
         },
         "operational_facts": facts,
         "probable_origin": origin,
         "explanation": _explanation(evidence, facts),
-        "model": _model_channel(evidence, buffer, artifacts),
+        "model": model_override if model_override is not None else _model_channel(evidence, buffer, artifacts),
         "timeline": evidence.get("timeline", []),
         "case_history": evidence.get("case_history", {}),
     }
